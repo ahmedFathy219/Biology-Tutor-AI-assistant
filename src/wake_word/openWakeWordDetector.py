@@ -1,0 +1,63 @@
+# src/wake_word/openwakeword_detector.py
+import time
+import pyaudio
+import numpy as np
+from openwakeword.model import Model
+
+class OpenWakeWordDetector():
+    """
+    Real wake word detector using OpenWakeWord.
+    Uses a pre-trained 'hey_jarvis' model that comes with the library.
+    """
+    def __init__(self, model_name: str = "hey_jarvis", sensitivity: float = 0.5, device_index: int = None):
+        """
+        model_name: name of the built-in model, default is hey_jarvis which is built into openWakeWord lib
+        sensitivity: detection threshold (0-1), lower = more sensitive.
+        device_index: determines which microphone to listen on, find device index by running "python scripts/listInputDevices.py" 
+        """
+        self.model = Model(wakeword_models=[model_name], inference_framework="onnx")
+
+        # PyAudio stream setup
+        self.sample_rate = 16000  # OpenWakeWord requires 16kHz
+        self.chunk_size = 1280    # 80ms at 16kHz (can adjust)
+
+        self.pa = pyaudio.PyAudio()
+        self.stream = self.pa.open(
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=self.sample_rate,
+            input=True,
+            frames_per_buffer=self.chunk_size,
+            input_device_index=device_index
+        )
+        self.sensitivity = sensitivity
+
+    def listenWakeWord(self) -> bool:
+        """
+        Keeps listening in a loop until the wake word is detected.
+        Returns True once detection probability exceeds sensitivy value.
+        """
+        print(f"[OpenWakeWord] Listening for wake word...")
+        while True:
+            # Read a small chunk of audio
+            pcm = self.stream.read(self.chunk_size, exception_on_overflow=False)
+            audio = np.frombuffer(pcm, dtype=np.int16)
+
+            # Predict (returns a dict with model_name: probability)
+            predictions = self.model.predict(audio)
+
+            # Check if the wake word exceeds sensitivity
+            for model_name, prob in predictions.items():
+                if prob >= self.sensitivity:
+                    print(f"[OpenWakeWord] Detected '{model_name}' with confidence {prob:.2f}")
+                    return True
+
+            # short delay, to prevent high cpu utilization
+            time.sleep(0.01)
+
+    def __del__(self):
+        try:
+            self.stream.close()
+            self.pa.terminate()
+        except:
+            pass

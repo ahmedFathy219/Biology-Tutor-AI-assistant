@@ -14,7 +14,7 @@ stream = p.open(format=pyaudio.paInt16,
                 rate=RATE,
                 input=True,
                 frames_per_buffer=CHUNK,
-                input_device_index=2)
+                input_device_index=1)
 
 print("Listening... (speak now, press Ctrl+C to stop)")
 try:

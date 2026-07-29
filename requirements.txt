@@ -2,3 +2,14 @@ numpy
 openwakeword
 PyAudio
 python-dotenv
+langchain
+langchain-community
+langchain-ollama
+langchain_chroma
+chromadb
+sentence-transformers
+pypdf
+unstructured
+pymupdf
+pytesseract
+pillow

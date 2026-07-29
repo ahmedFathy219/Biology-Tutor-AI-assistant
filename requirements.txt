@@ -2,3 +2,4 @@ numpy
 openwakeword
 PyAudio
 python-dotenv
+faster-whisper

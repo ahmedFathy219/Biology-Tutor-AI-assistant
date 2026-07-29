@@ -1,6 +1,10 @@
+# src/main.py
+
 from dotenv import load_dotenv
 
+from rag import BioAssistant
 from stt import getSpeechToText
+from tts import getTTSEngine
 from wake_word import getWakeWordDetector
 
 
@@ -9,10 +13,11 @@ def main() -> None:
 
     print("[Main] Initializing Study Buddy...")
 
+    # Initialize each major component only once.
     wake_word_detector = getWakeWordDetector()
-
-    # Load the Whisper model only once.
     speech_to_text = getSpeechToText()
+    assistant = BioAssistant()
+    tts = getTTSEngine()
 
     print("[Main] Study Buddy is ready.")
 
@@ -20,7 +25,7 @@ def main() -> None:
         while True:
             print("\n[Main] Waiting for wake word...")
 
-            # This waits only for “Hey Echo”.
+            # 1. Wait for "Hey Echo"
             wake_word_detector.listenWakeWord()
 
             print(
@@ -28,7 +33,7 @@ def main() -> None:
                 "Now listening for your question..."
             )
 
-            # This records and transcribes the following sentence.
+            # 2. Record and transcribe the spoken question
             question = speech_to_text.listenAndTranscribe()
 
             if not question:
@@ -38,11 +43,25 @@ def main() -> None:
                 )
                 continue
 
-            print(f"\n[Student] {question}")
+            print(f"[Student] {question}")
 
-            # Later:
-            # answer = rag.answerQuestion(question)
-            # text_to_speech.speak(answer)
+            # Optional spoken or typed exit command
+            if question.strip().lower() in {
+                "exit",
+                "quit",
+                "stop study buddy",
+            }:
+                print("[Main] Ending the Study Buddy session.")
+                break
+
+            # 3. Send the transcription to the biology assistant
+            response = assistant.answer(question)
+
+            # 4. Show the response in the console
+            print(f"[Echo] {response}")
+
+            # 5. Speak the response aloud
+            tts.speak(response)
 
     except KeyboardInterrupt:
         print("\n[Main] Study Buddy stopped.")

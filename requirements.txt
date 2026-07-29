@@ -3,3 +3,15 @@ openwakeword
 PyAudio
 python-dotenv
 faster-whisper
+edge-tts
+langchain
+langchain-community
+langchain-ollama
+langchain_chroma
+chromadb
+sentence-transformers
+pypdf
+unstructured
+pymupdf
+pytesseract
+pillow

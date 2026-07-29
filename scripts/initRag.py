@@ -5,6 +5,7 @@ os.environ["OLLAMA_NUM_PARALLEL"] = "0"   # disable local tokenizer
 import fitz
 import pytesseract
 import shutil
+import platform
 from PIL import Image
 import io
 from tqdm import tqdm
@@ -21,8 +22,11 @@ EMBEDDING_MODEL = "nomic-embed-text"
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 BATCH_SIZE = 200          # embed 200 chunks at a time
-TESSERACT_CMD = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+
+
+if platform.system() == "Windows":
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# On Linux (Pi) Tesseract is in PATH – no need to set it.
 
 #ensure chromadb is empty
 shutil.rmtree(CHROMA_PATH)

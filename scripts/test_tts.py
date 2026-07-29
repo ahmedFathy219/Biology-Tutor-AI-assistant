@@ -28,6 +28,9 @@ def main():
             wake_word.listenWakeWord()
 
             print("[Test] Wake word detected!")
+            greeting="How can i help you"
+            print(greeting)
+            tts.speak(greeting)
 
             question = speech_to_text.listenAndTranscribe()
 

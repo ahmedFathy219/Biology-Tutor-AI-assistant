@@ -32,6 +32,9 @@ def main() -> None:
                 "[Main] Wake word detected! "
                 "Now listening for your question..."
             )
+            greeting="How can i help you"
+            print(greeting)
+            tts.speak(greeting)
 
             # 2. Record and transcribe the spoken question
             question = speech_to_text.listenAndTranscribe()
@@ -60,9 +63,10 @@ def main() -> None:
             # 4. Show the response in the console
             print(f"[Echo] {response}")
 
+        
             # 5. Speak the response aloud
             tts.speak(response)
-
+            wake_word_detector.clearBuffer
     except KeyboardInterrupt:
         print("\n[Main] Study Buddy stopped.")
 

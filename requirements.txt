@@ -4,6 +4,7 @@ PyAudio
 python-dotenv
 faster-whisper
 edge-tts
+pygame
 langchain
 langchain-community
 langchain-ollama

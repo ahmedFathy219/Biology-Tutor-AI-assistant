@@ -32,6 +32,10 @@ class OpenWakeWordDetector():
         )
         self.sensitivity = sensitivity
 
+    def clearBuffer(self):
+        #clear buffer to prevent repeated detections
+        self.model.reset()
+
     def listenWakeWord(self) -> bool:
         """
         Keeps listening in a loop until the wake word is detected.

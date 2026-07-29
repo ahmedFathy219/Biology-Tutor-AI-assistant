@@ -1,7 +1,7 @@
 # src/main.py
 
 from dotenv import load_dotenv
-
+import time
 from rag import BioAssistant
 from stt import getSpeechToText
 from tts import getTTSEngine
@@ -62,6 +62,7 @@ def main() -> None:
 
             # 5. Speak the response aloud
             tts.speak(response)
+            time.sleep(2.0)
 
     except KeyboardInterrupt:
         print("\n[Main] Study Buddy stopped.")

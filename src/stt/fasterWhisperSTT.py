@@ -7,7 +7,7 @@ from typing import Optional
 
 import numpy as np
 import pyaudio
-from faster_whisper import WhisperModel
+from faster_whisper import WhisperModel, audio
 
 
 class FasterWhisperSTT:
@@ -74,7 +74,10 @@ class FasterWhisperSTT:
             np.sqrt(np.mean(float_samples * float_samples))
         )
 
-    def recordCommand(self) -> np.ndarray:
+    def recordCommand(
+         self,
+         wait_for_speech_seconds: Optional[float] = None,
+    ) -> np.ndarray:
         """
         Wait for speech, record until silence, and return normalized
         audio as a float32 NumPy array.
@@ -128,10 +131,16 @@ class FasterWhisperSTT:
             waiting_chunk_count = 0
             recorded_chunk_count = 0
 
+            actual_wait_seconds= (
+                self.wait_for_speech_seconds
+                if wait_for_speech_seconds is None
+                else wait_for_speech_seconds
+            )
+
             wait_limit = max(
                 1,
                 int(
-                    self.wait_for_speech_seconds
+                    actual_wait_seconds
                     * self.RATE
                     / self.CHUNK
                 ),
@@ -269,11 +278,18 @@ class FasterWhisperSTT:
 
         return transcript
 
-    def listenAndTranscribe(self) -> str:
+    def listenAndTranscribe(
+        self,
+        wait_for_speech_seconds: Optional[float] = None,
+    ) -> str:
         """
-        Complete STT operation:
-        microphone -> recorded audio -> transcription.
+        Record and transcribe one spoken command.
+
+        A temporary timeout can be supplied for short follow-up windows.
         """
 
-        audio = self.recordCommand()
+        audio = self.recordCommand(
+            wait_for_speech_seconds=wait_for_speech_seconds
+        )
+
         return self.transcribeAudio(audio)

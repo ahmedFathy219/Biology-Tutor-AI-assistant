@@ -1,7 +1,7 @@
 # src/main.py
 
 from dotenv import load_dotenv
-import time
+
 from rag import BioAssistant
 from stt import getSpeechToText
 from tts import getTTSEngine
@@ -16,7 +16,7 @@ def main() -> None:
     # Initialize each major component only once.
     wake_word_detector = getWakeWordDetector()
     speech_to_text = getSpeechToText()
-   # assistant = BioAssistant()
+    assistant = BioAssistant()
     tts = getTTSEngine()
 
     print("[Main] Study Buddy is ready.")
@@ -55,14 +55,13 @@ def main() -> None:
                 break
 
             # 3. Send the transcription to the biology assistant
-        #    response = assistant.answer(question)
-            response = question
+            response = assistant.answer(question)
+
             # 4. Show the response in the console
             print(f"[Echo] {response}")
 
             # 5. Speak the response aloud
             tts.speak(response)
-            time.sleep(2.0)
 
     except KeyboardInterrupt:
         print("\n[Main] Study Buddy stopped.")

@@ -2,6 +2,7 @@ numpy
 openwakeword
 PyAudio
 python-dotenv
+faster-whisper
 edge-tts
 langchain
 langchain-community

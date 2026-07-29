@@ -1,35 +1,71 @@
-from wake_word import getWakeWordDetector
-from rag import BioAssistant
+# src/main.py
+
 from dotenv import load_dotenv
+
+from rag import BioAssistant
+from stt import getSpeechToText
 from tts import getTTSEngine
-import time
+from wake_word import getWakeWordDetector
 
-load_dotenv()
 
-assistant = BioAssistant()
+def main() -> None:
+    load_dotenv()
 
-detector = getWakeWordDetector()
-tts = getTTSEngine()
+    print("[Main] Initializing Study Buddy...")
 
-while True:
-    detector.listenWakeWord()
+    # Initialize each major component only once.
+    wake_word_detector = getWakeWordDetector()
+    speech_to_text = getSpeechToText()
+    assistant = BioAssistant()
+    tts = getTTSEngine()
 
-    print("Wake word detected! Listening for command...")
+    print("[Main] Study Buddy is ready.")
 
-    # Placeholder for STT
-    transcription = input("Type your question (or 'exit' to stop): ")
+    try:
+        while True:
+            print("\n[Main] Waiting for wake word...")
 
-    if transcription.lower() == "exit":
-        break
+            # 1. Wait for "Hey Echo"
+            wake_word_detector.listenWakeWord()
 
-    # Query the assistant
-    response = assistant.answer(transcription)
+            print(
+                "[Main] Wake word detected! "
+                "Now listening for your question..."
+            )
 
-    # Output to console
-    print(f"Echo: {response}")
+            # 2. Record and transcribe the spoken question
+            question = speech_to_text.listenAndTranscribe()
 
-    # Speak the response
-    tts.speak(response)
+            if not question:
+                print(
+                    "[Main] No question was detected. "
+                    "Please try again."
+                )
+                continue
 
-    # Wait before listening again
-    time.sleep(5)
+            print(f"[Student] {question}")
+
+            # Optional spoken or typed exit command
+            if question.strip().lower() in {
+                "exit",
+                "quit",
+                "stop study buddy",
+            }:
+                print("[Main] Ending the Study Buddy session.")
+                break
+
+            # 3. Send the transcription to the biology assistant
+            response = assistant.answer(question)
+
+            # 4. Show the response in the console
+            print(f"[Echo] {response}")
+
+            # 5. Speak the response aloud
+            tts.speak(response)
+
+    except KeyboardInterrupt:
+        print("\n[Main] Study Buddy stopped.")
+
+
+if __name__ == "__main__":
+    main()

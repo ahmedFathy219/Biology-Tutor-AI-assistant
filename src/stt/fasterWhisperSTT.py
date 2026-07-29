@@ -1,0 +1,279 @@
+# src/stt/fasterWhisperSTT.py
+
+from __future__ import annotations
+
+from collections import deque
+from typing import Optional
+
+import numpy as np
+import pyaudio
+from faster_whisper import WhisperModel
+
+
+class FasterWhisperSTT:
+    """
+    Records one spoken command from the microphone and transcribes it
+    using Faster-Whisper.
+    """
+
+    RATE = 16000
+    CHANNELS = 1
+    CHUNK = 1024
+    AUDIO_FORMAT = pyaudio.paInt16
+
+    def __init__(
+        self,
+        model_size: str = "base.en",
+        device: str = "cpu",
+        compute_type: str = "int8",
+        language: Optional[str] = "en",
+        device_index: Optional[int] = None,
+        speech_threshold: float = 400.0,
+        silence_seconds: float = 1.2,
+        wait_for_speech_seconds: float = 5.0,
+        max_recording_seconds: float = 15.0,
+        beam_size: int = 3,
+    ) -> None:
+        self.device_index = device_index
+        self.language = language
+        self.speech_threshold = speech_threshold
+        self.silence_seconds = silence_seconds
+        self.wait_for_speech_seconds = wait_for_speech_seconds
+        self.max_recording_seconds = max_recording_seconds
+        self.beam_size = beam_size
+
+        print(
+            f"[STT] Loading Whisper model: {model_size} "
+            f"(device={device}, compute_type={compute_type})"
+        )
+
+        self.model = WhisperModel(
+            model_size,
+            device=device,
+            compute_type=compute_type,
+        )
+
+        print("[STT] Whisper model loaded successfully.")
+
+    @staticmethod
+    def _calculate_rms(data: bytes) -> float:
+        """
+        Calculate the RMS audio level.
+
+        A higher RMS value generally means louder audio.
+        """
+
+        samples = np.frombuffer(data, dtype=np.int16)
+
+        if samples.size == 0:
+            return 0.0
+
+        float_samples = samples.astype(np.float32)
+
+        return float(
+            np.sqrt(np.mean(float_samples * float_samples))
+        )
+
+    def recordCommand(self) -> np.ndarray:
+        """
+        Wait for speech, record until silence, and return normalized
+        audio as a float32 NumPy array.
+        """
+
+        audio_manager = pyaudio.PyAudio()
+        stream = None
+
+        try:
+            if self.device_index is None:
+                device_info = (
+                    audio_manager.get_default_input_device_info()
+                )
+                selected_device_index = int(device_info["index"])
+            else:
+                selected_device_index = self.device_index
+                device_info = audio_manager.get_device_info_by_index(
+                    selected_device_index
+                )
+
+            print(
+                f"[STT] Using microphone index "
+                f"{selected_device_index}: {device_info['name']}"
+            )
+
+            stream = audio_manager.open(
+                format=self.AUDIO_FORMAT,
+                channels=self.CHANNELS,
+                rate=self.RATE,
+                input=True,
+                input_device_index=selected_device_index,
+                frames_per_buffer=self.CHUNK,
+            )
+
+            print("[STT] Listening for your question...")
+
+            # Keep a small amount of audio from immediately before
+            # speech is detected. This avoids cutting off the first word.
+            pre_roll_chunks = max(
+                1,
+                int(0.25 * self.RATE / self.CHUNK),
+            )
+            pre_roll: deque[bytes] = deque(
+                maxlen=pre_roll_chunks
+            )
+
+            frames: list[bytes] = []
+
+            speech_started = False
+            silence_chunk_count = 0
+            waiting_chunk_count = 0
+            recorded_chunk_count = 0
+
+            wait_limit = max(
+                1,
+                int(
+                    self.wait_for_speech_seconds
+                    * self.RATE
+                    / self.CHUNK
+                ),
+            )
+
+            silence_limit = max(
+                1,
+                int(
+                    self.silence_seconds
+                    * self.RATE
+                    / self.CHUNK
+                ),
+            )
+
+            recording_limit = max(
+                1,
+                int(
+                    self.max_recording_seconds
+                    * self.RATE
+                    / self.CHUNK
+                ),
+            )
+
+            while True:
+                data = stream.read(
+                    self.CHUNK,
+                    exception_on_overflow=False,
+                )
+
+                rms = self._calculate_rms(data)
+
+                if not speech_started:
+                    pre_roll.append(data)
+                    waiting_chunk_count += 1
+
+                    if rms >= self.speech_threshold:
+                        speech_started = True
+                        frames.extend(pre_roll)
+
+                        print(
+                            f"[STT] Speech detected "
+                            f"(level={rms:.1f})."
+                        )
+
+                    elif waiting_chunk_count >= wait_limit:
+                        print(
+                            "[STT] No speech was detected before "
+                            "the timeout."
+                        )
+
+                        return np.array([], dtype=np.float32)
+
+                    continue
+
+                frames.append(data)
+                recorded_chunk_count += 1
+
+                if rms < self.speech_threshold:
+                    silence_chunk_count += 1
+                else:
+                    silence_chunk_count = 0
+
+                if silence_chunk_count >= silence_limit:
+                    print("[STT] End of speech detected.")
+                    break
+
+                if recorded_chunk_count >= recording_limit:
+                    print(
+                        "[STT] Maximum recording duration reached."
+                    )
+                    break
+
+            raw_audio = b"".join(frames)
+
+            int16_audio = np.frombuffer(
+                raw_audio,
+                dtype=np.int16,
+            )
+
+            # Whisper expects float audio approximately between -1 and 1.
+            normalized_audio = (
+                int16_audio.astype(np.float32) / 32768.0
+            )
+
+            return normalized_audio
+
+        finally:
+            if stream is not None:
+                if stream.is_active():
+                    stream.stop_stream()
+
+                stream.close()
+
+            audio_manager.terminate()
+
+    def transcribeAudio(self, audio: np.ndarray) -> str:
+        """
+        Convert a recorded NumPy audio array into text.
+        """
+
+        if audio.size == 0:
+            return ""
+
+        print("[STT] Transcribing...")
+
+        segments, information = self.model.transcribe(
+            audio,
+            language=self.language,
+            task="transcribe",
+            beam_size=self.beam_size,
+            vad_filter=True,
+            vad_parameters={
+                "min_silence_duration_ms": 400,
+            },
+            condition_on_previous_text=False,
+        )
+
+        # Faster-Whisper returns segments as a generator.
+        # Iterating through it performs the actual transcription.
+        transcript_parts = [
+            segment.text.strip()
+            for segment in segments
+            if segment.text.strip()
+        ]
+
+        transcript = " ".join(transcript_parts).strip()
+
+        if transcript:
+            print(
+                f"[STT] Detected language: "
+                f"{information.language}"
+            )
+        else:
+            print("[STT] No understandable speech was found.")
+
+        return transcript
+
+    def listenAndTranscribe(self) -> str:
+        """
+        Complete STT operation:
+        microphone -> recorded audio -> transcription.
+        """
+
+        audio = self.recordCommand()
+        return self.transcribeAudio(audio)

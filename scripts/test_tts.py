@@ -53,7 +53,6 @@ def normalizeText(text: str) -> str:
     """
     Normalize transcription for command comparison.
     """
-
     normalized = text.lower().strip()
 
     normalized = normalized.translate(
@@ -65,6 +64,16 @@ def normalizeText(text: str) -> str:
     )
 
     return " ".join(normalized.split())
+
+
+def containsPhrase(text: str, phrases: set[str]) -> bool:
+    """
+    Returns True if any phrase exists inside the text.
+    """
+    return any(
+        phrase in text
+        for phrase in phrases
+    )
 
 
 def main() -> None:
@@ -82,6 +91,7 @@ def main() -> None:
 
     try:
         while not should_stop_application:
+
             print("\n[Test] Waiting for wake word...")
 
             wake_word.clearBuffer()
@@ -107,19 +117,22 @@ def main() -> None:
                 )
                 continue
 
-            # Continue accepting questions inside the same session.
             while question:
+
                 print(f"[You] {question}")
 
                 normalized_question = normalizeText(question)
 
-                if normalized_question in EXIT_APPLICATION_COMMANDS:
+                if containsPhrase(
+                    normalized_question,
+                    EXIT_APPLICATION_COMMANDS,
+                ):
+                    print("[Echo] Goodbye!")
                     tts.speak("Goodbye!")
-
                     should_stop_application = True
                     break
 
-                # Fake response because this test does not use RAG.
+                # Fake response (no RAG)
                 response = (
                     f"I heard you say: {question}. "
                     "The speech-to-text and text-to-speech "
@@ -129,9 +142,7 @@ def main() -> None:
                 print(f"[Echo] {response}")
                 tts.speak(response)
 
-                follow_up_prompt = (
-                    "Do you have any more questions?"
-                )
+                follow_up_prompt = "Do you have any more questions?"
 
                 print(f"[Echo] {follow_up_prompt}")
                 tts.speak(follow_up_prompt)
@@ -148,7 +159,6 @@ def main() -> None:
                     .strip()
                 )
 
-                # Silence returns to wake-word mode.
                 if not follow_up:
                     print(
                         "[Test] No follow-up response detected. "
@@ -158,14 +168,12 @@ def main() -> None:
 
                 print(f"[You] {follow_up}")
 
-                normalized_follow_up = normalizeText(
-                    follow_up
-                )
+                normalized_follow_up = normalizeText(follow_up)
 
-                # "No" returns to wake-word mode.
-                if (
-                    normalized_follow_up
-                    in NO_MORE_QUESTIONS_RESPONSES
+                # Student said "No"
+                if containsPhrase(
+                    normalized_follow_up,
+                    NO_MORE_QUESTIONS_RESPONSES,
                 ):
                     session_end_message = (
                         "Okay. Say Hey Echo whenever you need me."
@@ -175,18 +183,22 @@ def main() -> None:
                     tts.speak(session_end_message)
                     break
 
-                # Exit completely.
-                if (
-                    normalized_follow_up
-                    in EXIT_APPLICATION_COMMANDS
+                # Student wants to exit
+                if containsPhrase(
+                    normalized_follow_up,
+                    EXIT_APPLICATION_COMMANDS,
                 ):
+                    print("[Echo] Goodbye!")
                     tts.speak("Goodbye!")
 
                     should_stop_application = True
                     break
 
-                # If the student says only "yes", ask for the question.
-                if normalized_follow_up in YES_RESPONSES:
+                # Student answered "Yes"
+                if containsPhrase(
+                    normalized_follow_up,
+                    YES_RESPONSES,
+                ):
                     question_prompt = "What is your question?"
 
                     print(f"[Echo] {question_prompt}")
@@ -208,7 +220,7 @@ def main() -> None:
                     question = next_question
                     continue
 
-                # A direct follow-up becomes the next question.
+                # Treat any other response as another question.
                 question = follow_up
 
     except KeyboardInterrupt:

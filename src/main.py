@@ -2,7 +2,7 @@
 
 from dotenv import load_dotenv
 
-#from rag import BioAssistant
+from rag import BioAssistant
 from stt import getSpeechToText
 from tts import getTTSEngine
 from wake_word import getWakeWordDetector
@@ -69,7 +69,7 @@ def main() -> None:
 
     wake_word_detector = getWakeWordDetector()
     speech_to_text = getSpeechToText()
-    #assistant = BioAssistant()
+    assistant = BioAssistant()
     tts = getTTSEngine()
 
     print("[Main] Study Buddy is ready.")
@@ -87,7 +87,8 @@ def main() -> None:
             wake_word_detector.listenWakeWord()
 
             print("[Main] Wake word detected!")
-
+            # free mic before starting SST
+            wake_word_detector.stop()
             greeting = "How can I help you?"
 
             print(f"[Echo] {greeting}")
@@ -124,8 +125,8 @@ def main() -> None:
                     break
 
                 # Send the student's question to the RAG assistant.
-                #response = assistant.answer(question)
-                response= "this is a test response"
+                response = assistant.answer(question)
+                # response= "this is a test response"
 
                 print(f"[Echo] {response}")
                 tts.speak(response)
@@ -218,7 +219,8 @@ def main() -> None:
                 # If the student directly says another question,
                 # treat it as the next question.
                 question = follow_up
-
+            #give mic access back to wakeword detector
+            wake_word_detector.start()
     except KeyboardInterrupt:
         print("\n[Main] Study Buddy stopped.")
 

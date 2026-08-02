@@ -87,7 +87,8 @@ def main() -> None:
             wake_word_detector.listenWakeWord()
 
             print("[Main] Wake word detected!")
-
+            # free mic before starting SST
+            wake_word_detector.stop()
             greeting = "How can I help you?"
 
             print(f"[Echo] {greeting}")
@@ -218,7 +219,8 @@ def main() -> None:
                 # If the student directly says another question,
                 # treat it as the next question.
                 question = follow_up
-
+            #give mic access back to wakeword detector
+            wake_word_detector.start()
     except KeyboardInterrupt:
         print("\n[Main] Study Buddy stopped.")
 

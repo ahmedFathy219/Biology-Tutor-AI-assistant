@@ -30,6 +30,7 @@ class OpenWakeWordDetector():
         #dynamically calculate chunksize
         self.chunk_size = int(self.CHUNK_DURATION * self.input_rate)
 
+        self.target_samples = int(self.TARGET_RATE * self.CHUNK_DURATION)
         
         self.stream = self.pa.open(
             format=pyaudio.paInt16,
@@ -65,6 +66,24 @@ class OpenWakeWordDetector():
         #clear buffer to prevent repeated detections
         self.model.reset()
 
+    def stop(self):
+        """Release the microphone so other components can use it."""
+        if self.stream.is_active():
+            self.stream.stop_stream()
+        self.stream.close()
+
+    def start(self):
+        """Re-open the stream to resume listening for the wake word."""
+        self.stream = self.pa.open(
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=self.input_rate,
+            input=True,
+            frames_per_buffer=self.chunk_size,
+            input_device_index=self.device_index
+        )
+        self.clearBuffer()
+
     def listenWakeWord(self) -> bool:
         """
         Keeps listening in a loop until the wake word is detected.
@@ -78,7 +97,7 @@ class OpenWakeWordDetector():
 
             # If not 16 kHz, resample with SciPy
             if self.input_rate != self.TARGET_RATE:
-                data = resample(data, self.target_samples).astype(np.int16)
+                audio = resample(audio,self.target_samples).astype(np.int16)
                 
             # Predict (returns a dict with model_name: probability)
             predictions = self.model.predict(audio)

@@ -221,5 +221,5 @@ __marimo__/
 .venv/
 __pycache__/
 *.pyc
-#ignore data folder due to large pdfs and changing content
-data/
+#ignore folder containing large pdfs
+data/bio_materials/

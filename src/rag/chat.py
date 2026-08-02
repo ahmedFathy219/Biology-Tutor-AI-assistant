@@ -19,7 +19,7 @@ historyDir = "data/chat_histories"
 K = 3
 
 #LLM temperature ( 0.0 -> 1.0, higher -> more creative)
-TEMP = 0.2
+TEMP = 0.8
 
 class BioAssistant:
 

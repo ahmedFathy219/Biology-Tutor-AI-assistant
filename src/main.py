@@ -2,7 +2,7 @@
 
 from dotenv import load_dotenv
 
-#from rag import BioAssistant
+from rag import BioAssistant
 from stt import getSpeechToText
 from tts import getTTSEngine
 from wake_word import getWakeWordDetector
@@ -69,7 +69,7 @@ def main() -> None:
 
     wake_word_detector = getWakeWordDetector()
     speech_to_text = getSpeechToText()
-    #assistant = BioAssistant()
+    assistant = BioAssistant()
     tts = getTTSEngine()
 
     print("[Main] Study Buddy is ready.")
@@ -124,8 +124,8 @@ def main() -> None:
                     break
 
                 # Send the student's question to the RAG assistant.
-                #response = assistant.answer(question)
-                response= "this is a test response"
+                response = assistant.answer(question)
+                # response= "this is a test response"
 
                 print(f"[Echo] {response}")
                 tts.speak(response)

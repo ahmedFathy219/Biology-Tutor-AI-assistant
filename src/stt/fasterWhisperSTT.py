@@ -7,6 +7,7 @@ from typing import Optional
 
 import numpy as np
 import pyaudio
+from scipy.signal import resample
 from faster_whisper import WhisperModel, audio
 
 
@@ -16,7 +17,7 @@ class FasterWhisperSTT:
     using Faster-Whisper.
     """
 
-    RATE = 16000
+    TARGET_RATE = 16000
     CHANNELS = 1
     CHUNK = 1024
     AUDIO_FORMAT = pyaudio.paInt16
@@ -33,6 +34,7 @@ class FasterWhisperSTT:
         wait_for_speech_seconds: float = 5.0,
         max_recording_seconds: float = 15.0,
         beam_size: int = 3,
+        warmup_seconds: float = 0.5,
     ) -> None:
         self.device_index = device_index
         self.language = language
@@ -41,6 +43,11 @@ class FasterWhisperSTT:
         self.wait_for_speech_seconds = wait_for_speech_seconds
         self.max_recording_seconds = max_recording_seconds
         self.beam_size = beam_size
+
+        #determine a working input rate
+        pa = pyaudio.PyAudio()
+        self.input_rate = self._get_supported_rate(pa)
+        pa.terminate()
 
         print(
             f"[STT] Loading Whisper model: {model_size} "
@@ -55,6 +62,23 @@ class FasterWhisperSTT:
 
         print("[STT] Whisper model loaded successfully.")
 
+    def _get_supported_rate(self, pa):
+        for rate in (16000, 48000, 44100):
+            try:
+                pa.is_format_supported(
+                    rate,
+                    input_device=self.device_index,
+                    input_channels=1,
+                    input_format=pyaudio.paInt16
+                )
+                return rate
+            except ValueError:
+                continue
+        info = pa.get_device_info_by_index(
+            self.device_index if self.device_index is not None
+            else pa.get_default_input_device_info()['index']
+        )
+        return int(info['defaultSampleRate'])        
     @staticmethod
     def _calculate_rms(data: bytes) -> float:
         """
@@ -106,11 +130,20 @@ class FasterWhisperSTT:
             stream = audio_manager.open(
                 format=self.AUDIO_FORMAT,
                 channels=self.CHANNELS,
-                rate=self.RATE,
+                rate=self.input_rate,
                 input=True,
                 input_device_index=selected_device_index,
                 frames_per_buffer=self.CHUNK,
             )
+
+            #discard initial noisy samples, removes startup glitch when sample rate > 16kHz
+            # self.warmup_seconds = 0.5
+            # warmup_chunks = max(1, int(self.warmup_seconds * self.input_rate / self.CHUNK))
+            # for _ in range(warmup_chunks):
+            #     stream.read(
+            #         self.CHUNK,
+            #         exception_on_overflow=False
+            #     )
 
             print("[STT] Listening for your question...")
 
@@ -118,7 +151,7 @@ class FasterWhisperSTT:
             # speech is detected. This avoids cutting off the first word.
             pre_roll_chunks = max(
                 1,
-                int(0.25 * self.RATE / self.CHUNK),
+                int(0.5 * self.input_rate / self.CHUNK),
             )
             pre_roll: deque[bytes] = deque(
                 maxlen=pre_roll_chunks
@@ -141,7 +174,7 @@ class FasterWhisperSTT:
                 1,
                 int(
                     actual_wait_seconds
-                    * self.RATE
+                    * self.TARGET_RATE
                     / self.CHUNK
                 ),
             )
@@ -150,7 +183,7 @@ class FasterWhisperSTT:
                 1,
                 int(
                     self.silence_seconds
-                    * self.RATE
+                    * self.input_rate
                     / self.CHUNK
                 ),
             )
@@ -159,7 +192,7 @@ class FasterWhisperSTT:
                 1,
                 int(
                     self.max_recording_seconds
-                    * self.RATE
+                    * self.input_rate
                     / self.CHUNK
                 ),
             )
@@ -220,6 +253,11 @@ class FasterWhisperSTT:
                 dtype=np.int16,
             )
 
+            # Resample entire recording to 16 kHz with SciPy
+            if self.input_rate != self.TARGET_RATE:
+                target_len = int(len(int16_audio) * self.TARGET_RATE / self.input_rate)
+                int16_audio = resample(int16_audio, target_len).astype(np.int16)
+            
             # Whisper expects float audio approximately between -1 and 1.
             normalized_audio = (
                 int16_audio.astype(np.float32) / 32768.0

@@ -1,6 +1,9 @@
 import os
-os.environ["OLLAMA_HOST"] = "http://localhost:11434"
-os.environ["OLLAMA_NUM_PARALLEL"] = "0"   # disable local tokenizer
+from dotenv import load_dotenv
+# os.environ["OLLAMA_HOST"] = "http://localhost:11434"
+# os.environ["OLLAMA_NUM_PARALLEL"] = "0"   # disable local tokenizer
+
+load_dotenv()
 
 import fitz
 import pytesseract
@@ -18,10 +21,11 @@ from langchain_chroma import Chroma
 # --- Configuration ---
 DATA_PATH = "data/bio_materials"
 CHROMA_PATH = "data/chromadb"
-EMBEDDING_MODEL = "nomic-embed-text"
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
-BATCH_SIZE = 200          # embed 200 chunks at a time
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL","nomic-embed-text")
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE","1000"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP","200"))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE","200"))          # embed 200 chunks at a time
 
 
 if platform.system() == "Windows":
@@ -55,7 +59,8 @@ def process_pdfs():
         print(f"Reading {filename}...")
         doc = fitz.open(filepath)
 
-        for page_num, page in enumerate(doc, start=1):
+        for page_num in tqdm(range(1, doc.page_count + 1), desc=f"  Pages {filename}", leave=False):
+            page = doc[page_num - 1]
             # --- Page text ---
             page_text = page.get_text()
             if page_text.strip():
@@ -93,7 +98,7 @@ def process_pdfs():
     # --- Create vector store in batches ---
     embeddings = OllamaEmbeddings(
         model=EMBEDDING_MODEL,
-        base_url="http://localhost:11434"
+        base_url=OLLAMA_HOST
     )
 
     vector_store = Chroma(

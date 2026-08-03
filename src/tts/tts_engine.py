@@ -8,14 +8,15 @@ import os
 
 class TTSEngine:
     def __init__(self):
-        self.voice = "en-US-GuyNeural"
+        self.voice = "en-US-AndrewNeural"
 
         # Initialize pygame mixer once
         pygame.mixer.init()
 
     def clean_text(self, text: str) -> str:
         """
-        Cleans markdown and formatting characters so TTS speaks naturally.
+        Cleans markdown and formatting characters
+        so TTS speaks naturally.
         """
 
         # Remove markdown symbols
@@ -40,7 +41,8 @@ class TTSEngine:
         communicate = edge_tts.Communicate(
             text,
             self.voice,
-            rate="+20%"
+            rate="+10%"
+          
         )
 
         await communicate.save(output_file)
@@ -49,22 +51,34 @@ class TTSEngine:
         cleaned_text = self.clean_text(text)
 
         # Create a temporary MP3 file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
-            temp_path = temp_file.name
+        with tempfile.NamedTemporaryFile(
+            suffix=".mp3",
+            delete=False
+        ) as temp_file:
 
-        # Generate speech
-        asyncio.run(self._speak_async(cleaned_text, temp_path))
+            output_file = temp_file.name
 
-        # Play the audio
-        pygame.mixer.music.load(temp_path)
-        pygame.mixer.music.play()
+        try:
+            # Generate speech
+            asyncio.run(
+                self._speak_async(
+                    cleaned_text,
+                    output_file
+                )
+            )
 
-        # Wait until playback finishes
-        while pygame.mixer.music.get_busy():
-            pygame.time.Clock().tick(10)
+            # Play speech
+            pygame.mixer.music.load(output_file)
+            pygame.mixer.music.play()
 
-        # Release the file
-        pygame.mixer.music.unload()
+            # Wait until speech finishes
+            while pygame.mixer.music.get_busy():
+                pygame.time.Clock().tick(10)
 
-        # Delete the temporary file
-        os.remove(temp_path)
+        finally:
+            # Release the audio file
+            pygame.mixer.music.unload()
+
+            # Delete temporary MP3
+            if os.path.exists(output_file):
+                os.remove(output_file)

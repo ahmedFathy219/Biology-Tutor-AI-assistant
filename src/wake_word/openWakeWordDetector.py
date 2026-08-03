@@ -73,6 +73,7 @@ class OpenWakeWordDetector():
         if self.stream.is_active():
             self.stream.stop_stream()
         self.stream.close()
+        self.stream = None
 
     def start(self):
         """Re-open the stream to resume listening for the wake word."""

@@ -222,4 +222,4 @@ __marimo__/
 __pycache__/
 *.pyc
 #ignore folder containing large pdfs
-data/bio_materials/
+data/

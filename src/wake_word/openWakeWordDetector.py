@@ -22,6 +22,8 @@ class OpenWakeWordDetector():
         """
         self.model = Model(wakeword_models=[model_name], inference_framework="onnx")
 
+        self.device_index = device_index
+        
         self.pa = pyaudio.PyAudio()
 
         #determine the input device rate depending on the device
@@ -38,7 +40,7 @@ class OpenWakeWordDetector():
             rate=self.input_rate,
             input=True,
             frames_per_buffer=self.chunk_size,
-            input_device_index=device_index
+            input_device_index=self.device_index
         )
         self.sensitivity = sensitivity
 
@@ -71,6 +73,7 @@ class OpenWakeWordDetector():
         if self.stream.is_active():
             self.stream.stop_stream()
         self.stream.close()
+        self.stream = None
 
     def start(self):
         """Re-open the stream to resume listening for the wake word."""
@@ -91,6 +94,11 @@ class OpenWakeWordDetector():
         """
         print(f"[OpenWakeWord] Listening for wake word...")
         while True:
+
+            #Ensure stream is open before reading
+            if not self.stream or not self.stream.is_active():
+                self.start()
+
             # Read a small chunk of audio
             pcm = self.stream.read(self.chunk_size, exception_on_overflow=False)
             audio = np.frombuffer(pcm, dtype=np.int16)

@@ -7,19 +7,22 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_community.chat_message_histories import FileChatMessageHistory
 import os
+from dotenv import load_dotenv
 
+load_dotenv()
 #configuration
 
 CHROMA_PATH = "data/chromadb"
-LLM_MODEL = "llama3.2:3b"
-EMBEDDING_MODEL = "nomic-embed-text"
+LLM_MODEL = os.getenv("LLM_MODEL","llama3.2:3b")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL","nomic-embed-text")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 historyDir = "data/chat_histories"
 
 #number of closest documents retrieved
-K = 3
+K = int(os.getenv("RAG_K","3"))
 
 #LLM temperature ( 0.0 -> 1.0, higher -> more creative)
-TEMP = 0.8
+TEMP = float(os.getenv("RAG_TEMP","0.8"))
 
 class BioAssistant:
 
@@ -56,7 +59,7 @@ class BioAssistant:
         #1- load vector embedings and retriever
         embeddings = OllamaEmbeddings(
             model=EMBEDDING_MODEL,
-            base_url="http://localhost:11434"
+            base_url=OLLAMA_HOST
         )
         vectorstore = Chroma(
             persist_directory=CHROMA_PATH,
@@ -65,49 +68,36 @@ class BioAssistant:
         retriever = vectorstore.as_retriever(search_kwargs={"k": K})
 
         #2- use LLM (ChatOllama) to  handle message
-        llm = ChatOllama(model=LLM_MODEL, temperature=TEMP)
-
-        #3- Ask LLM to rephrase the user question before retrieving from rag
-        #later can change template
-        prompt_query = ChatPromptTemplate.from_messages([
-            ("system", "Given the chat history and the latest user question, " "rephrase the question into a standalone question " "Do NOT answer the question, just reformulate it if needed."), MessagesPlaceholder("chat_history"), ("human", "{input}")
-        ])
-
-        #4-History aware retriever
-        #takes input and chat history and rephrases the question
-        #uses rephrased question to retrieve the K most similar chunks
-
-        history_aware_retriever = (
-            RunnablePassthrough.assign(
-                rephrased_question=prompt_query | llm | StrOutputParser()
+        llm = ChatOllama(
+            model=LLM_MODEL, 
+            temperature=TEMP,
+            base_url=OLLAMA_HOST
             )
-            | RunnableLambda(lambda x: retriever.invoke(x["rephrased_question"]))
-        )
 
-        #5- final prompt that uses the retrieved documents and history as context, and original user prompt query to be used as input to the LLM
+    
+        #3- final prompt that uses the retrieved documents and history as context, and user prompt query to be used as input to the LLM
 
         final_prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are a helpful biology study assistant. " "Use only the following pieces of retrieved context to answer the question. " "If you don't know the answer, say that you don't know. " "keep the answer concise, accurate and consistent with the following context:\n\n{context}"),
+            ("system", "You are a helpful biology study assistant. " "Use only the following pieces of retrieved context to answer the question. " "If you don't know the answer, say that you don't know. " "format your response as a script to be used in text to speach" "keep the answer understandable, and accurate\n\n{context}"),
             MessagesPlaceholder("chat_history"),
             ("human", "{input}")
         ])
 
-        #6- build Full pipeline
+        #4- build Full pipeline
         # 1. retrieve documents
-        # 2. format as text
-        # 3. put retrieved documents, chat history and user question into one prompt
-        # 4. recieve LLM answer
+        # 2. format documents, history and question as text
+        # 3. Send Prompt to LLM
 
         rag_chain = (
             RunnablePassthrough.assign(
-                context=history_aware_retriever | RunnableLambda(self.formatDocs)
+                context=RunnableLambda(lambda x: x["input"]) | retriever | RunnableLambda(self.formatDocs)
             )
             | final_prompt
             | llm
             | StrOutputParser() #may need to change to text-to-speach
         )
 
-        #7- Chat history management
+        #5- add history management to pipeline
         conversation_chain = RunnableWithMessageHistory(
             rag_chain,
             self.getSessionHistory,

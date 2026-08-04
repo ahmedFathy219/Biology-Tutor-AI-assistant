@@ -34,7 +34,6 @@ class FasterWhisperSTT:
         wait_for_speech_seconds: float = 5.0,
         max_recording_seconds: float = 15.0,
         beam_size: int = 3,
-        warmup_seconds: float = 0.5,
     ) -> None:
         self.device_index = device_index
         self.language = language
@@ -174,7 +173,7 @@ class FasterWhisperSTT:
                 1,
                 int(
                     actual_wait_seconds
-                    * self.TARGET_RATE
+                    * self.input_rate
                     / self.CHUNK
                 ),
             )

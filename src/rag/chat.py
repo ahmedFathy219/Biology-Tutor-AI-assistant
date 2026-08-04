@@ -19,10 +19,28 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 historyDir = "data/chat_histories"
 
 #number of closest documents retrieved
-K = int(os.getenv("RAG_K","3"))
+K = int(os.getenv("RAG_K","2"))
+#max number of history messages to keep
+MAX_MESSAGES = int(os.getenv("MAX_MESSAGES", "4"))
 
 #LLM temperature ( 0.0 -> 1.0, higher -> more creative)
 TEMP = float(os.getenv("RAG_TEMP","0.8"))
+NUM_PREDICT = int(os.getenv("NUM_PREDICT", "256"))
+NUM_CONTEXT = int(os.getenv("NUM_CONTEXT", "2048"))
+
+class LimitedFileChatMessageHistory(FileChatMessageHistory):
+    def __init__(self, file_path: str, max_messages: int = 12):
+        super().__init__(file_path)
+        self.max_messages = max_messages
+
+    def add_message(self, message):
+        super().add_message(message)
+        all_msgs = self.messages
+        if len(all_msgs) > self.max_messages:
+            #save only the most recent #max_messages
+            trimmed = all_msgs[-self.max_messages:]
+            self.clear()
+            self.add_messages(trimmed)
 
 class BioAssistant:
 
@@ -32,13 +50,12 @@ class BioAssistant:
 
     def getSessionHistory(self, session_id: str) -> BaseChatMessageHistory:
         file_path = os.path.join(historyDir, f"{session_id}.json")
-        return FileChatMessageHistory(file_path)
+        return LimitedFileChatMessageHistory(file_path, max_messages=MAX_MESSAGES)
 
 
     #combines k retrieved chunks into one text
     def formatDocs(self, docs):
         #combine documents into one string and print their sources
-
         print("]n Retrieved documents:")
         for i, doc in enumerate(docs, 1):
             meta = doc.metadata
@@ -48,9 +65,8 @@ class BioAssistant:
             # Build a short preview of the content (first 100 chars)
             preview = doc.page_content.strip().replace('\n', ' ')[:100]
             print(f"   {i}. {source} | page {page} | {chunk_type}")
-            print(f"      \"{preview}...\"")
+            print(f"      \"{preview}...\"") 
         print()
-
         #combine all page content for the llm
         return "\n\n".join(doc.page_content for doc in docs)
 
@@ -71,7 +87,9 @@ class BioAssistant:
         llm = ChatOllama(
             model=LLM_MODEL, 
             temperature=TEMP,
-            base_url=OLLAMA_HOST
+            base_url=OLLAMA_HOST,
+            num_predict=NUM_PREDICT,
+            num_ctx=NUM_CONTEXT
             )
 
     

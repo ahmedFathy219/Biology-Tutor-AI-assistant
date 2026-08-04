@@ -1,7 +1,8 @@
 import sys
+import time
+import threading
 from pathlib import Path
 
-# Add the src folder to Python's import path.
 sys.path.append(
     str(
         Path(__file__).resolve().parents[1]
@@ -9,222 +10,62 @@ sys.path.append(
     )
 )
 
-from dotenv import load_dotenv
-
-from stt import getSpeechToText
 from tts import getTTSEngine
 from wake_word import getWakeWordDetector
 
 
-EXIT_APPLICATION_COMMANDS = {
-    "exit",
-    "quit",
-    "stop",
-    "stop study buddy",
-    "shut down",
-    "shutdown",
-}
-
-NO_MORE_QUESTIONS_RESPONSES = {
-    "no",
-    "nope",
-    "no thanks",
-    "no thank you",
-    "not now",
-    "that is all",
-    "that's all",
-    "nothing else",
-    "i am done",
-    "i'm done",
-}
-
-YES_RESPONSES = {
-    "yes",
-    "yeah",
-    "yep",
-    "sure",
-    "yes please",
-    "i do",
-    "i have another question",
-}
-
-
-def normalizeText(text: str) -> str:
-    """
-    Normalize transcription for command comparison.
-    """
-    normalized = text.lower().strip()
-
-    normalized = normalized.translate(
-        str.maketrans(
-            "",
-            "",
-            ".,!?;:",
-        )
-    )
-
-    return " ".join(normalized.split())
-
-
-def containsPhrase(text: str, phrases: set[str]) -> bool:
-    """
-    Returns True if any phrase exists inside the text.
-    """
-    return any(
-        phrase in text
-        for phrase in phrases
-    )
-
-
-def main() -> None:
-    load_dotenv()
+def main():
 
     print("[Test] Initializing components...")
 
-    wake_word = getWakeWordDetector()
-    speech_to_text = getSpeechToText()
     tts = getTTSEngine()
+    wake_word = getWakeWordDetector()
 
-    print("[Test] Ready!")
+    print("[Test] Components ready.")
 
-    should_stop_application = False
+    long_text = (
+        "Hello, I am Echo. "
+        "I am going to explain something about biology. "
+        "This is intentionally a long response so that "
+        "you have enough time to interrupt me. "
+        "While I am speaking, say Hey Echo. "
+        "The wake word detector should hear you and "
+        "immediately stop my speech. "
+        "After that, we will connect this system to "
+        "the main Study Buddy application."
+    )
 
-    try:
-        while not should_stop_application:
+    def speak():
+        print("[Test] Echo started speaking.")
+        tts.speak(long_text)
+        print("[Test] Echo finished speaking.")
 
-            print("\n[Test] Waiting for wake word...")
+    speech_thread = threading.Thread(
+        target=speak
+    )
 
-            wake_word.clearBuffer()
-            wake_word.listenWakeWord()
+    speech_thread.start()
 
-            print("[Test] Wake word detected!")
+    print()
+    print("[Test] Say 'Hey Echo' while Echo is speaking.")
+    print("[Test] Waiting for interruption...")
+    print()
 
-            greeting = "How can I help you?"
+    # Keep listening for the wake word while TTS speaks.
+    wake_word.listenWakeWord()
 
-            print(f"[Echo] {greeting}")
-            tts.speak(greeting)
+    print("[Test] Wake word detected!")
+    print("[Test] Interrupting Echo...")
 
-            question = (
-                speech_to_text
-                .listenAndTranscribe()
-                .strip()
-            )
+    tts.stop()
 
-            if not question:
-                print(
-                    "[Test] I didn't hear anything. "
-                    "Returning to wake-word mode."
-                )
-                continue
+    speech_thread.join()
 
-            while question:
+    print("[Test] Echo has been interrupted.")
 
-                print(f"[You] {question}")
+    wake_word.stop()
 
-                normalized_question = normalizeText(question)
-
-                if containsPhrase(
-                    normalized_question,
-                    EXIT_APPLICATION_COMMANDS,
-                ):
-                    print("[Echo] Goodbye!")
-                    tts.speak("Goodbye!")
-                    should_stop_application = True
-                    break
-
-                # Fake response (no RAG)
-                response = (
-                    f"I heard you say: {question}. "
-                    "The speech-to-text and text-to-speech "
-                    "pipeline is working correctly."
-                )
-
-                print(f"[Echo] {response}")
-                tts.speak(response)
-
-                follow_up_prompt = "Do you have any more questions?"
-
-                print(f"[Echo] {follow_up_prompt}")
-                tts.speak(follow_up_prompt)
-
-                print(
-                    "[Test] Waiting briefly for a response..."
-                )
-
-                follow_up = (
-                    speech_to_text
-                    .listenAndTranscribe(
-                        wait_for_speech_seconds=4.0
-                    )
-                    .strip()
-                )
-
-                if not follow_up:
-                    print(
-                        "[Test] No follow-up response detected. "
-                        "Returning to wake-word mode."
-                    )
-                    break
-
-                print(f"[You] {follow_up}")
-
-                normalized_follow_up = normalizeText(follow_up)
-
-                # Student said "No"
-                if containsPhrase(
-                    normalized_follow_up,
-                    NO_MORE_QUESTIONS_RESPONSES,
-                ):
-                    session_end_message = (
-                        "Okay. Say Hey Echo whenever you need me."
-                    )
-
-                    print(f"[Echo] {session_end_message}")
-                    tts.speak(session_end_message)
-                    break
-
-                # Student wants to exit
-                if containsPhrase(
-                    normalized_follow_up,
-                    EXIT_APPLICATION_COMMANDS,
-                ):
-                    print("[Echo] Goodbye!")
-                    tts.speak("Goodbye!")
-
-                    should_stop_application = True
-                    break
-
-                # Student answered "Yes"
-                if containsPhrase(
-                    normalized_follow_up,
-                    YES_RESPONSES,
-                ):
-                    question_prompt = "What is your question?"
-
-                    print(f"[Echo] {question_prompt}")
-                    tts.speak(question_prompt)
-
-                    next_question = (
-                        speech_to_text
-                        .listenAndTranscribe()
-                        .strip()
-                    )
-
-                    if not next_question:
-                        print(
-                            "[Test] No question was detected. "
-                            "Returning to wake-word mode."
-                        )
-                        break
-
-                    question = next_question
-                    continue
-
-                # Treat any other response as another question.
-                question = follow_up
-
-    except KeyboardInterrupt:
-        print("\n[Test] Stopped.")
+    print("[Test] Test finished.")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 # src/main.py
 
+import threading
+
 from dotenv import load_dotenv
 
 from rag import BioAssistant
@@ -7,6 +9,10 @@ from stt import getSpeechToText
 from tts import getTTSEngine
 from wake_word import getWakeWordDetector
 
+
+# ============================================================
+# Commands
+# ============================================================
 
 EXIT_APPLICATION_COMMANDS = {
     "exit",
@@ -41,6 +47,10 @@ YES_RESPONSES = {
 }
 
 
+# ============================================================
+# Text normalization
+# ============================================================
+
 def normalizeText(text: str) -> str:
     """
     Normalize speech transcription for command comparison.
@@ -62,39 +72,235 @@ def normalizeText(text: str) -> str:
     return " ".join(normalized.split())
 
 
+# ============================================================
+# Interruptible TTS
+# ============================================================
+
+def speakInterruptibly(
+    tts,
+    wake_word_detector,
+    text: str,
+) -> bool:
+    """
+    Speak text while simultaneously listening
+    for the wake word.
+
+    Returns:
+        True  -> Hey Echo was detected.
+        False -> TTS finished normally.
+    """
+
+    print(
+        "[Interrupt] Echo is speaking. "
+        "Say 'Hey Echo' to interrupt."
+    )
+
+    # Make sure the wake-word detector has the microphone.
+    wake_word_detector.start()
+
+    stop_event = threading.Event()
+    wake_detected = threading.Event()
+
+    # --------------------------------------------------------
+    # TTS thread
+    # --------------------------------------------------------
+
+    def speak():
+
+        try:
+            tts.speak(text)
+
+        except Exception as error:
+
+            print(
+                f"[Interrupt] TTS error: {error}"
+            )
+
+        finally:
+
+            # Tell wake-word listener that TTS has finished.
+            stop_event.set()
+
+    # --------------------------------------------------------
+    # Wake-word thread
+    # --------------------------------------------------------
+
+    def listen():
+
+        try:
+
+            detected = (
+                wake_word_detector.listenWakeWord(
+                    stop_event=stop_event
+                )
+            )
+
+            if detected:
+
+                wake_detected.set()
+
+        except Exception as error:
+
+            print(
+                f"[Interrupt] Wake detector error: {error}"
+            )
+
+    # --------------------------------------------------------
+    # Create threads
+    # --------------------------------------------------------
+
+    speech_thread = threading.Thread(
+        target=speak,
+        daemon=True,
+    )
+
+    wake_thread = threading.Thread(
+        target=listen,
+        daemon=True,
+    )
+
+    # Start both simultaneously.
+    speech_thread.start()
+    wake_thread.start()
+
+    # --------------------------------------------------------
+    # Monitor both threads
+    # --------------------------------------------------------
+
+    while True:
+
+        # Hey Echo detected.
+        if wake_detected.is_set():
+
+            print(
+                "[Interrupt] Hey Echo detected!"
+            )
+
+            # Immediately stop Echo.
+            tts.stop()
+
+            # Tell wake-word listener to stop.
+            stop_event.set()
+
+            break
+
+        # TTS finished normally.
+        if not speech_thread.is_alive():
+
+            stop_event.set()
+
+            break
+
+        # Small delay.
+        threading.Event().wait(0.05)
+
+    # --------------------------------------------------------
+    # Wait for TTS thread to finish
+    # --------------------------------------------------------
+
+    speech_thread.join(
+        timeout=2.0
+    )
+
+    # --------------------------------------------------------
+    # Release microphone
+    # --------------------------------------------------------
+
+    try:
+
+        wake_word_detector.stop()
+
+    except Exception as error:
+
+        print(
+            f"[Interrupt] Error releasing microphone: {error}"
+        )
+
+    # --------------------------------------------------------
+    # Return result
+    # --------------------------------------------------------
+
+    return wake_detected.is_set()
+
+
+# ============================================================
+# Main
+# ============================================================
+
 def main() -> None:
+
     load_dotenv()
 
-    print("[Main] Initializing Study Buddy...")
+    print(
+        "[Main] Initializing Study Buddy..."
+    )
+
+    # --------------------------------------------------------
+    # Initialize components
+    # --------------------------------------------------------
 
     wake_word_detector = getWakeWordDetector()
+
     speech_to_text = getSpeechToText()
+
     assistant = BioAssistant()
+
     tts = getTTSEngine()
 
-    print("[Main] Study Buddy is ready.")
+    print(
+        "[Main] Study Buddy is ready."
+    )
 
     should_stop_application = False
 
     try:
-        while not should_stop_application:
-            print("\n[Main] Waiting for wake word...")
 
-            # Reset previous wake-word model audio history.
+        # ====================================================
+        # Main application loop
+        # ====================================================
+
+        while not should_stop_application:
+
+            print(
+                "\n[Main] Waiting for wake word..."
+            )
+
+            # Reset previous wake-word detection state.
             wake_word_detector.clearBuffer()
 
-            # Wait until the student says "Hey Echo".
+            # ------------------------------------------------
+            # Wait for "Hey Echo"
+            # ------------------------------------------------
+
             wake_word_detector.listenWakeWord()
 
-            print("[Main] Wake word detected!")
-            # free mic before starting SST
+            print(
+                "[Main] Wake word detected!"
+            )
+
+            # Give microphone to STT.
             wake_word_detector.stop()
-            greeting = "How can I help you?"
 
-            print(f"[Echo] {greeting}")
-            tts.speak(greeting)
+            # ------------------------------------------------
+            # Greeting
+            # ------------------------------------------------
 
-            # Listen for the first question.
+            greeting = (
+                "How can I help you?"
+            )
+
+            print(
+                f"[Echo] {greeting}"
+            )
+
+            tts.speak(
+                greeting
+            )
+
+            # ------------------------------------------------
+            # Listen for first question
+            # ------------------------------------------------
+
             question = (
                 speech_to_text
                 .listenAndTranscribe()
@@ -102,48 +308,149 @@ def main() -> None:
             )
 
             if not question:
+
                 print(
                     "[Main] No question was detected. "
                     "Returning to wake-word mode."
                 )
+
+                wake_word_detector.start()
+
                 continue
 
-            # This inner loop handles one conversation session.
-            # Follow-up questions do not require "Hey Echo".
+            # =================================================
+            # Conversation loop
+            # =================================================
+
             while question:
-                print(f"[Student] {question}")
 
-                normalized_question = normalizeText(question)
+                print(
+                    f"[Student] {question}"
+                )
 
-                if normalized_question in EXIT_APPLICATION_COMMANDS:
+                normalized_question = normalizeText(
+                    question
+                )
+
+                # ------------------------------------------------
+                # Exit command
+                # ------------------------------------------------
+
+                if (
+                    normalized_question
+                    in EXIT_APPLICATION_COMMANDS
+                ):
+
                     goodbye = "Goodbye."
 
-                    print(f"[Echo] {goodbye}")
-                    tts.speak(goodbye)
+                    print(
+                        f"[Echo] {goodbye}"
+                    )
+
+                    tts.speak(
+                        goodbye
+                    )
 
                     should_stop_application = True
+
                     break
 
-                # Send the student's question to the RAG assistant.
-                response = assistant.answer(question)
-                # response= "this is a test response"
+                # ------------------------------------------------
+                # RAG
+                # ------------------------------------------------
 
-                print(f"[Echo] {response}")
-                tts.speak(response)
+                response = assistant.answer(
+                    question
+                )
 
-                # Ask for another question after finishing the answer.
+                print(
+                    f"[Echo] {response}"
+                )
+
+                # ------------------------------------------------
+                # INTERRUPTIBLE RAG RESPONSE
+                # ------------------------------------------------
+
+                interrupted = speakInterruptibly(
+                    tts,
+                    wake_word_detector,
+                    response,
+                )
+
+                # ------------------------------------------------
+                # Hey Echo interrupted the answer
+                # ------------------------------------------------
+
+                if interrupted:
+
+                    print(
+                        "[Main] Response interrupted "
+                        "by wake word."
+                    )
+
+                    # Make sure wake detector is stopped.
+                    wake_word_detector.stop()
+
+                    # Give student a new greeting.
+                    new_greeting = (
+                        "How can I help you?"
+                    )
+
+                    print(
+                        f"[Echo] {new_greeting}"
+                    )
+
+                    tts.speak(
+                        new_greeting
+                    )
+
+                    # ------------------------------------------------
+                    # Listen for the new question
+                    # ------------------------------------------------
+
+                    question = (
+                        speech_to_text
+                        .listenAndTranscribe()
+                        .strip()
+                    )
+
+                    if not question:
+
+                        print(
+                            "[Main] No question was detected. "
+                            "Returning to wake-word mode."
+                        )
+
+                        break
+
+                    # Go directly to the new question.
+                    continue
+
+                # =================================================
+                # Normal follow-up flow
+                # =================================================
+
                 follow_up_prompt = (
                     "Do you have any more questions?"
                 )
 
-                print(f"[Echo] {follow_up_prompt}")
-                tts.speak(follow_up_prompt)
-
                 print(
-                    "[Main] Waiting briefly for a response..."
+                    f"[Echo] {follow_up_prompt}"
                 )
 
-                # Wait four seconds for the student to start speaking.
+                tts.speak(
+                    follow_up_prompt
+                )
+
+                print(
+                    "[Main] Waiting briefly "
+                    "for a response..."
+                )
+
+                # ------------------------------------------------
+                # Listen for follow-up
+                # ------------------------------------------------
+
                 follow_up = (
                     speech_to_text
                     .listenAndTranscribe(
@@ -152,53 +459,95 @@ def main() -> None:
                     .strip()
                 )
 
-                # Silence means the conversation session is finished.
+                # ------------------------------------------------
+                # No response
+                # ------------------------------------------------
+
                 if not follow_up:
+
                     print(
-                        "[Main] No follow-up response detected. "
-                        "Returning to wake-word mode."
+                        "[Main] No follow-up response "
+                        "detected. Returning to "
+                        "wake-word mode."
                     )
+
                     break
 
-                print(f"[Student] {follow_up}")
+                print(
+                    f"[Student] {follow_up}"
+                )
 
                 normalized_follow_up = normalizeText(
                     follow_up
                 )
 
-                # "No" means return to waiting for "Hey Echo".
+                # ------------------------------------------------
+                # No more questions
+                # ------------------------------------------------
+
                 if (
                     normalized_follow_up
                     in NO_MORE_QUESTIONS_RESPONSES
                 ):
+
                     session_end_message = (
-                        "Okay. Say Hey Echo whenever you need me."
+                        "Okay. Say Hey Echo "
+                        "whenever you need me."
                     )
 
-                    print(f"[Echo] {session_end_message}")
-                    tts.speak(session_end_message)
+                    print(
+                        f"[Echo] {session_end_message}"
+                    )
+
+                    tts.speak(
+                        session_end_message
+                    )
+
                     break
 
-                # Allow the student to close the entire application.
+                # ------------------------------------------------
+                # Exit
+                # ------------------------------------------------
+
                 if (
                     normalized_follow_up
                     in EXIT_APPLICATION_COMMANDS
                 ):
+
                     goodbye = "Goodbye."
 
-                    print(f"[Echo] {goodbye}")
-                    tts.speak(goodbye)
+                    print(
+                        f"[Echo] {goodbye}"
+                    )
+
+                    tts.speak(
+                        goodbye
+                    )
 
                     should_stop_application = True
+
                     break
 
-                # If the student only says "yes", ask them to say
-                # the actual question.
-                if normalized_follow_up in YES_RESPONSES:
-                    question_prompt = "What is your question?"
+                # ------------------------------------------------
+                # Yes
+                # ------------------------------------------------
 
-                    print(f"[Echo] {question_prompt}")
-                    tts.speak(question_prompt)
+                if (
+                    normalized_follow_up
+                    in YES_RESPONSES
+                ):
+
+                    question_prompt = (
+                        "What is your question?"
+                    )
+
+                    print(
+                        f"[Echo] {question_prompt}"
+                    )
+
+                    tts.speak(
+                        question_prompt
+                    )
 
                     next_question = (
                         speech_to_text
@@ -207,23 +556,54 @@ def main() -> None:
                     )
 
                     if not next_question:
+
                         print(
-                            "[Main] No question was detected. "
-                            "Returning to wake-word mode."
+                            "[Main] No question was "
+                            "detected. Returning to "
+                            "wake-word mode."
                         )
+
                         break
 
                     question = next_question
+
                     continue
 
-                # If the student directly says another question,
-                # treat it as the next question.
-                question = follow_up
-            #give mic access back to wakeword detector
-            wake_word_detector.start()
-    except KeyboardInterrupt:
-        print("\n[Main] Study Buddy stopped.")
+                # ------------------------------------------------
+                # Student directly asked another question
+                # ------------------------------------------------
 
+                question = follow_up
+
+            # ====================================================
+            # Return microphone to wake-word detector
+            # ====================================================
+
+            if not should_stop_application:
+
+                wake_word_detector.start()
+
+    except KeyboardInterrupt:
+
+        print(
+            "\n[Main] Study Buddy stopped."
+        )
+
+    finally:
+
+        # Always release microphone.
+        try:
+
+            wake_word_detector.stop()
+
+        except Exception:
+
+            pass
+
+
+# ============================================================
+# Run application
+# ============================================================
 
 if __name__ == "__main__":
     main()

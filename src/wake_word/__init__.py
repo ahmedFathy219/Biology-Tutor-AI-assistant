@@ -6,7 +6,7 @@ def getWakeWordDetector() -> OpenWakeWordDetector:
     
     model_name = "models/Hey_Echo.onnx"
     print(model_name)
-    sensitivity = float(os.environ.get("OWW_SENSITIVITY", "0.5"))
+    sensitivity = float(os.environ.get("OWW_SENSITIVITY", "0.4"))
 
     device_index_str = os.environ.get("MIC_DEVICE_INDEX")
     device_index = int(device_index_str) if device_index_str is not None else None

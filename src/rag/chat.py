@@ -1,133 +1,384 @@
-from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_chroma import Chroma
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough, RunnableLambda
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_core.chat_history import BaseChatMessageHistory
-from langchain_community.chat_message_histories import FileChatMessageHistory
 import os
+
 from dotenv import load_dotenv
 
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_chroma import Chroma
+
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    MessagesPlaceholder,
+)
+
+from langchain_core.output_parsers import StrOutputParser
+
+from langchain_core.runnables import (
+    RunnablePassthrough,
+    RunnableLambda,
+)
+
+from langchain_core.runnables.history import (
+    RunnableWithMessageHistory,
+)
+
+from langchain_core.chat_history import (
+    BaseChatMessageHistory,
+)
+
+from langchain_community.chat_message_histories import (
+    FileChatMessageHistory,
+)
+
+
 load_dotenv()
-#configuration
+
+
+# ============================================================
+# Configuration
+# ============================================================
 
 CHROMA_PATH = "data/chromadb"
-LLM_MODEL = os.getenv("LLM_MODEL","llama3.2:3b")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL","nomic-embed-text")
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-historyDir = "data/chat_histories"
 
-#number of closest documents retrieved
-K = int(os.getenv("RAG_K","2"))
-#max number of history messages to keep
-MAX_MESSAGES = int(os.getenv("MAX_MESSAGES", "4"))
+LLM_MODEL = os.getenv(
+    "LLM_MODEL",
+    "llama3.2:3b",
+)
 
-#LLM temperature ( 0.0 -> 1.0, higher -> more creative)
-TEMP = float(os.getenv("RAG_TEMP","0.8"))
-NUM_PREDICT = int(os.getenv("NUM_PREDICT", "256"))
-NUM_CONTEXT = int(os.getenv("NUM_CONTEXT", "2048"))
+EMBEDDING_MODEL = os.getenv(
+    "EMBEDDING_MODEL",
+    "nomic-embed-text",
+)
+
+OLLAMA_HOST = os.getenv(
+    "OLLAMA_HOST",
+    "http://localhost:11434",
+)
+
+HISTORY_DIR = "data/chat_histories"
+
+# Number of documents retrieved from ChromaDB
+K = int(
+    os.getenv(
+        "RAG_K",
+        "3",
+    )
+)
+
+# LLM temperature
+TEMP = float(
+    os.getenv(
+        "RAG_TEMP",
+        "0.8",
+    )
+)
+
+# Limit the amount of previous conversation sent to the LLM
+MAX_MESSAGES = int(
+    os.getenv(
+        "RAG_MAX_HISTORY_MESSAGES",
+        "10",
+    )
+)
+
+# Ollama generation settings
+NUM_PREDICT = int(
+    os.getenv(
+        "RAG_NUM_PREDICT",
+        "256",
+    )
+)
+
+NUM_CONTEXT = int(
+    os.getenv(
+        "RAG_NUM_CONTEXT",
+        "2048",
+    )
+)
+
+
+# ============================================================
+# Limited chat history
+# ============================================================
 
 class LimitedFileChatMessageHistory(FileChatMessageHistory):
-    def __init__(self, file_path: str, max_messages: int = 12):
+    """
+    File-based chat history with a maximum number of messages.
+
+    This prevents the conversation history from becoming too
+    large and slowing down the LLM.
+    """
+
+    def __init__(
+        self,
+        file_path: str,
+        max_messages: int = MAX_MESSAGES,
+    ):
         super().__init__(file_path)
         self.max_messages = max_messages
 
-    def add_message(self, message):
-        super().add_message(message)
-        all_msgs = self.messages
-        if len(all_msgs) > self.max_messages:
-            #save only the most recent #max_messages
-            trimmed = all_msgs[-self.max_messages:]
-            self.clear()
-            self.add_messages(trimmed)
+    @property
+    def messages(self):
+        messages = super().messages
+
+        if len(messages) > self.max_messages:
+            return messages[-self.max_messages:]
+
+        return messages
+
+
+# ============================================================
+# Biology Assistant
+# ============================================================
 
 class BioAssistant:
 
     def __init__(self):
+        os.makedirs(
+            HISTORY_DIR,
+            exist_ok=True,
+        )
+
         self.chain = self.buildChain()
-        os.makedirs(historyDir, exist_ok=True)
 
-    def getSessionHistory(self, session_id: str) -> BaseChatMessageHistory:
-        file_path = os.path.join(historyDir, f"{session_id}.json")
-        return LimitedFileChatMessageHistory(file_path, max_messages=MAX_MESSAGES)
+    # --------------------------------------------------------
+    # Chat history
+    # --------------------------------------------------------
 
+    def getSessionHistory(
+        self,
+        session_id: str,
+    ) -> BaseChatMessageHistory:
 
-    #combines k retrieved chunks into one text
+        file_path = os.path.join(
+            HISTORY_DIR,
+            f"{session_id}.json",
+        )
+
+        return LimitedFileChatMessageHistory(
+            file_path,
+            max_messages=MAX_MESSAGES,
+        )
+
+    # --------------------------------------------------------
+    # Format retrieved documents
+    # --------------------------------------------------------
+
     def formatDocs(self, docs):
-        #combine documents into one string and print their sources
-        print("]n Retrieved documents:")
-        for i, doc in enumerate(docs, 1):
-            meta = doc.metadata
-            source = meta.get("source", "unknown")
-            page = meta.get("page", "?")
-            chunk_type = meta.get("type", "text")
-            # Build a short preview of the content (first 100 chars)
-            preview = doc.page_content.strip().replace('\n', ' ')[:100]
-            print(f"   {i}. {source} | page {page} | {chunk_type}")
-            print(f"      \"{preview}...\"") 
-        print()
-        #combine all page content for the llm
-        return "\n\n".join(doc.page_content for doc in docs)
+        """
+        Format retrieved documents and display their sources.
+        """
 
-    #build RAG pipeline
+        print("\n[RAG] Retrieved documents:")
+
+        if not docs:
+            print("[RAG] No documents were retrieved.")
+            return ""
+
+        for i, doc in enumerate(docs, 1):
+
+            metadata = doc.metadata
+
+            source = metadata.get(
+                "source",
+                "unknown",
+            )
+
+            page = metadata.get(
+                "page",
+                "?",
+            )
+
+            document_type = metadata.get(
+                "type",
+                "text",
+            )
+
+            preview = (
+                doc.page_content
+                .strip()
+                .replace("\n", " ")
+            )
+
+            preview = preview[:120]
+
+            print(
+                f"   {i}. {source} "
+                f"| page {page} "
+                f"| type: {document_type}"
+            )
+
+            print(
+                f'      "{preview}..."'
+            )
+
+        print()
+
+        # Combine retrieved chunks into context
+        return "\n\n".join(
+            doc.page_content
+            for doc in docs
+        )
+
+    # --------------------------------------------------------
+    # Build RAG chain
+    # --------------------------------------------------------
+
     def buildChain(self):
-        #1- load vector embedings and retriever
+
+        # ====================================================
+        # 1. Load embeddings
+        # ====================================================
+
         embeddings = OllamaEmbeddings(
             model=EMBEDDING_MODEL,
-            base_url=OLLAMA_HOST
+            base_url=OLLAMA_HOST,
         )
+
+        # ====================================================
+        # 2. Load ChromaDB
+        # ====================================================
+
         vectorstore = Chroma(
             persist_directory=CHROMA_PATH,
-            embedding_function=embeddings
+            embedding_function=embeddings,
         )
-        retriever = vectorstore.as_retriever(search_kwargs={"k": K})
 
-        #2- use LLM (ChatOllama) to  handle message
+        # ====================================================
+        # 3. Create retriever
+        # ====================================================
+
+        retriever = vectorstore.as_retriever(
+            search_kwargs={
+                "k": K,
+            }
+        )
+
+        # ====================================================
+        # 4. Create Ollama LLM
+        # ====================================================
+
         llm = ChatOllama(
-            model=LLM_MODEL, 
+            model=LLM_MODEL,
             temperature=TEMP,
             base_url=OLLAMA_HOST,
             num_predict=NUM_PREDICT,
-            num_ctx=NUM_CONTEXT
-            )
+            num_ctx=NUM_CONTEXT,
+        )
 
-    
-        #3- final prompt that uses the retrieved documents and history as context, and user prompt query to be used as input to the LLM
+        # ====================================================
+        # 5. Prompt
+        # ====================================================
 
-        final_prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are a helpful biology study assistant. " "Use only the following pieces of retrieved context to answer the question. " "If you don't know the answer, say that you don't know. " "format your response as a script to be used in text to speach" "keep the answer understandable, and accurate\n\n{context}"),
-            MessagesPlaceholder("chat_history"),
-            ("human", "{input}")
-        ])
+        final_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """
+You are Echo, a friendly biology study assistant.
 
-        #4- build Full pipeline
-        # 1. retrieve documents
-        # 2. format documents, history and question as text
-        # 3. Send Prompt to LLM
+Use ONLY the retrieved biology context to answer the
+student's question.
+
+If the answer is not supported by the retrieved context,
+say that you don't know rather than making up information.
+
+Your response will be spoken aloud using text-to-speech.
+
+Follow these rules:
+
+Speak naturally and conversationally.
+
+Keep the explanation clear and easy for a student to
+understand.
+
+Do not use Markdown.
+
+Do not use bullet points.
+
+Do not use numbered lists.
+
+Do not use symbols or formatting.
+
+Avoid unnecessary repetition.
+
+Give a concise answer unless the student asks for
+more detail.
+
+Use natural sentences that sound good when spoken aloud.
+
+You can use short pauses by separating ideas into
+sentences.
+
+Retrieved biology context:
+
+{context}
+""",
+                ),
+
+                MessagesPlaceholder(
+                    variable_name="chat_history"
+                ),
+
+                (
+                    "human",
+                    "{input}",
+                ),
+            ]
+        )
+
+        # ====================================================
+        # 6. RAG pipeline
+        # ====================================================
 
         rag_chain = (
             RunnablePassthrough.assign(
-                context=RunnableLambda(lambda x: x["input"]) | retriever | RunnableLambda(self.formatDocs)
+                context=(
+                    RunnableLambda(
+                        lambda x: x["input"]
+                    )
+                    | retriever
+                    | RunnableLambda(
+                        self.formatDocs
+                    )
+                )
             )
             | final_prompt
             | llm
-            | StrOutputParser() #may need to change to text-to-speach
+            | StrOutputParser()
         )
 
-        #5- add history management to pipeline
+        # ====================================================
+        # 7. Add conversation history
+        # ====================================================
+
         conversation_chain = RunnableWithMessageHistory(
             rag_chain,
             self.getSessionHistory,
             input_messages_key="input",
-            history_messages_key="chat_history"
+            history_messages_key="chat_history",
         )
 
         return conversation_chain
 
-    def answer(self, question: str, session_id: str = "bio_study") -> str:
-          response = self.chain.invoke(
-                {"input": question},
-                config={"configurable": {"session_id": session_id}}
-          )
-          return response
+    # --------------------------------------------------------
+    # Ask the assistant
+    # --------------------------------------------------------
+
+    def answer(
+        self,
+        question: str,
+        session_id: str = "bio_study",
+    ) -> str:
+
+        response = self.chain.invoke(
+            {
+                "input": question,
+            },
+            config={
+                "configurable": {
+                    "session_id": session_id,
+                }
+            },
+        )
+
+        return response

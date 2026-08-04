@@ -34,7 +34,7 @@ load_dotenv()
 
 
 # ============================================================
-# CONFIGURATION
+# Configuration
 # ============================================================
 
 CHROMA_PATH = "data/chromadb"
@@ -72,15 +72,67 @@ TEMP = float(
     )
 )
 
+# Limit the amount of previous conversation sent to the LLM
+MAX_MESSAGES = int(
+    os.getenv(
+        "RAG_MAX_HISTORY_MESSAGES",
+        "10",
+    )
+)
+
+# Ollama generation settings
+NUM_PREDICT = int(
+    os.getenv(
+        "RAG_NUM_PREDICT",
+        "256",
+    )
+)
+
+NUM_CONTEXT = int(
+    os.getenv(
+        "RAG_NUM_CONTEXT",
+        "2048",
+    )
+)
+
 
 # ============================================================
-# BIOLOGY ASSISTANT
+# Limited chat history
+# ============================================================
+
+class LimitedFileChatMessageHistory(FileChatMessageHistory):
+    """
+    File-based chat history with a maximum number of messages.
+
+    This prevents the conversation history from becoming too
+    large and slowing down the LLM.
+    """
+
+    def __init__(
+        self,
+        file_path: str,
+        max_messages: int = MAX_MESSAGES,
+    ):
+        super().__init__(file_path)
+        self.max_messages = max_messages
+
+    @property
+    def messages(self):
+        messages = super().messages
+
+        if len(messages) > self.max_messages:
+            return messages[-self.max_messages:]
+
+        return messages
+
+
+# ============================================================
+# Biology Assistant
 # ============================================================
 
 class BioAssistant:
 
     def __init__(self):
-
         os.makedirs(
             HISTORY_DIR,
             exist_ok=True,
@@ -88,9 +140,9 @@ class BioAssistant:
 
         self.chain = self.buildChain()
 
-    # ========================================================
-    # CHAT HISTORY
-    # ========================================================
+    # --------------------------------------------------------
+    # Chat history
+    # --------------------------------------------------------
 
     def getSessionHistory(
         self,
@@ -102,38 +154,33 @@ class BioAssistant:
             f"{session_id}.json",
         )
 
-        return FileChatMessageHistory(
-            file_path
+        return LimitedFileChatMessageHistory(
+            file_path,
+            max_messages=MAX_MESSAGES,
         )
 
-    # ========================================================
-    # FORMAT RETRIEVED DOCUMENTS
-    # ========================================================
+    # --------------------------------------------------------
+    # Format retrieved documents
+    # --------------------------------------------------------
 
     def formatDocs(self, docs):
+        """
+        Format retrieved documents and display their sources.
+        """
 
-        print()
-        print("=" * 60)
-        print("RETRIEVED DOCUMENTS")
-        print("=" * 60)
+        print("\n[RAG] Retrieved documents:")
 
         if not docs:
-            print("No documents were retrieved.")
-            print("=" * 60)
-            print()
-
+            print("[RAG] No documents were retrieved.")
             return ""
 
-        for i, doc in enumerate(
-            docs,
-            start=1,
-        ):
+        for i, doc in enumerate(docs, 1):
 
             metadata = doc.metadata
 
             source = metadata.get(
                 "source",
-                "Unknown source",
+                "unknown",
             )
 
             page = metadata.get(
@@ -152,88 +199,75 @@ class BioAssistant:
                 .replace("\n", " ")
             )
 
-            # Keep the preview short
-            if len(preview) > 150:
-                preview = preview[:150] + "..."
+            preview = preview[:120]
 
             print(
-                f"\nDocument {i}"
+                f"   {i}. {source} "
+                f"| page {page} "
+                f"| type: {document_type}"
             )
 
             print(
-                f"Source : {source}"
-            )
-
-            print(
-                f"Page   : {page}"
-            )
-
-            print(
-                f"Type   : {document_type}"
-            )
-
-            print(
-                f"Preview: {preview}"
+                f'      "{preview}..."'
             )
 
         print()
-        print("=" * 60)
-        print()
 
-        # Combine retrieved document content
-        # and send it to the LLM.
+        # Combine retrieved chunks into context
         return "\n\n".join(
             doc.page_content
             for doc in docs
         )
 
-    # ========================================================
-    # BUILD RAG CHAIN
-    # ========================================================
+    # --------------------------------------------------------
+    # Build RAG chain
+    # --------------------------------------------------------
 
     def buildChain(self):
 
-        # ----------------------------------------------------
-        # 1. LOAD EMBEDDINGS
-        # ----------------------------------------------------
+        # ====================================================
+        # 1. Load embeddings
+        # ====================================================
 
         embeddings = OllamaEmbeddings(
             model=EMBEDDING_MODEL,
             base_url=OLLAMA_HOST,
         )
 
-        # ----------------------------------------------------
-        # 2. LOAD CHROMA VECTOR DATABASE
-        # ----------------------------------------------------
+        # ====================================================
+        # 2. Load ChromaDB
+        # ====================================================
 
         vectorstore = Chroma(
             persist_directory=CHROMA_PATH,
             embedding_function=embeddings,
         )
 
-        # ----------------------------------------------------
-        # 3. CREATE RETRIEVER
-        # ----------------------------------------------------
+        # ====================================================
+        # 3. Create retriever
+        # ====================================================
 
         retriever = vectorstore.as_retriever(
             search_kwargs={
-                "k": K
+                "k": K,
             }
         )
 
-        # ----------------------------------------------------
-        # 4. LOAD LLM
-        # ----------------------------------------------------
+        # ====================================================
+        # 4. Create Ollama LLM
+        # ====================================================
 
         llm = ChatOllama(
             model=LLM_MODEL,
             temperature=TEMP,
             base_url=OLLAMA_HOST,
+            num_predict=NUM_PREDICT,
+            num_ctx=NUM_CONTEXT,
         )
 
-        # ----------------------------------------------------
-        # 5. CREATE PROMPT
-        # ----------------------------------------------------
+        # ====================================================
+        # 5. Prompt
+        # ====================================================
 
         final_prompt = ChatPromptTemplate.from_messages(
             [
@@ -242,33 +276,38 @@ class BioAssistant:
                     """
 You are Echo, a friendly biology study assistant.
 
-Use ONLY the retrieved biology context to answer
-the student's question.
+Use ONLY the retrieved biology context to answer the
+student's question.
 
-If the answer is not supported by the retrieved
-context, say that you don't know rather than
-making up information.
+If the answer is not supported by the retrieved context,
+say that you don't know rather than making up information.
 
-Your response will be spoken aloud using
-text-to-speech.
+Your response will be spoken aloud using text-to-speech.
 
 Follow these rules:
 
-- Speak naturally and conversationally.
-- Keep the explanation clear and easy for a student
-  to understand.
-- Do not use Markdown.
-- Do not use bullet points.
-- Do not use numbered lists.
-- Do not use symbols or formatting.
-- Avoid unnecessary repetition.
-- Give a concise answer unless the student asks
-  for more detail.
-- Use natural sentences that sound good when spoken.
-- Do not mention the retrieved documents.
-- Do not mention the RAG system.
-- Do not mention ChromaDB.
-- Do not mention internal system details.
+Speak naturally and conversationally.
+
+Keep the explanation clear and easy for a student to
+understand.
+
+Do not use Markdown.
+
+Do not use bullet points.
+
+Do not use numbered lists.
+
+Do not use symbols or formatting.
+
+Avoid unnecessary repetition.
+
+Give a concise answer unless the student asks for
+more detail.
+
+Use natural sentences that sound good when spoken aloud.
+
+You can use short pauses by separating ideas into
+sentences.
 
 Retrieved biology context:
 
@@ -277,7 +316,7 @@ Retrieved biology context:
                 ),
 
                 MessagesPlaceholder(
-                    "chat_history"
+                    variable_name="chat_history"
                 ),
 
                 (
@@ -287,9 +326,9 @@ Retrieved biology context:
             ]
         )
 
-        # ----------------------------------------------------
-        # 6. BUILD RAG PIPELINE
-        # ----------------------------------------------------
+        # ====================================================
+        # 6. RAG pipeline
+        # ====================================================
 
         rag_chain = (
             RunnablePassthrough.assign(
@@ -308,24 +347,22 @@ Retrieved biology context:
             | StrOutputParser()
         )
 
-        # ----------------------------------------------------
-        # 7. ADD CHAT HISTORY
-        # ----------------------------------------------------
+        # ====================================================
+        # 7. Add conversation history
+        # ====================================================
 
-        conversation_chain = (
-            RunnableWithMessageHistory(
-                rag_chain,
-                self.getSessionHistory,
-                input_messages_key="input",
-                history_messages_key="chat_history",
-            )
+        conversation_chain = RunnableWithMessageHistory(
+            rag_chain,
+            self.getSessionHistory,
+            input_messages_key="input",
+            history_messages_key="chat_history",
         )
 
         return conversation_chain
 
-    # ========================================================
-    # ANSWER QUESTION
-    # ========================================================
+    # --------------------------------------------------------
+    # Ask the assistant
+    # --------------------------------------------------------
 
     def answer(
         self,
@@ -335,11 +372,11 @@ Retrieved biology context:
 
         response = self.chain.invoke(
             {
-                "input": question
+                "input": question,
             },
             config={
                 "configurable": {
-                    "session_id": session_id
+                    "session_id": session_id,
                 }
             },
         )

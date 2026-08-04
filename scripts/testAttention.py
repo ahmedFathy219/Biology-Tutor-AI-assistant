@@ -1,16 +1,19 @@
 import sys
 import time
 from pathlib import Path
+from dotenv import load_dotenv
+
 
 import cv2
 
 
-sys.path.append(
-    str(
-        Path(__file__).resolve().parents[1]
-        / "src"
-    )
-)
+SRC_PATH = Path(__file__).resolve().parents[1] / "src"
+
+sys.path.insert(0, str(SRC_PATH))
+
+
+# These imports MUST come after sys.path.insert(...)
+from alerts import getBuzzerController
 
 
 from attention import (
@@ -21,6 +24,7 @@ from attention import (
 
 
 def main() -> None:
+    load_dotenv()
     print("[Attention Test] Initializing...")
 
     camera = cv2.VideoCapture(0)
@@ -32,6 +36,7 @@ def main() -> None:
 
     pose_estimator = HeadPoseEstimator()
     tracker = AttentionTracker()
+    buzzer = getBuzzerController()
 
     previous_state = None
 
@@ -49,6 +54,12 @@ def main() -> None:
             pose = pose_estimator.estimate(frame)
 
             state = tracker.update(pose)
+
+            if state == AttentionState.DISTRACTED:
+                buzzer.alert()
+            else:
+                buzzer.stop()
+
 
             if pose is not None:
                 information = (
@@ -114,6 +125,7 @@ def main() -> None:
             time.sleep(0.1)
 
     finally:
+        buzzer.close()
         camera.release()
         pose_estimator.close()
 

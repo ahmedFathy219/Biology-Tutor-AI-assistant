@@ -19,3 +19,6 @@ pillow
 mediapipe==0.10.15
 numpy==1.26.4
 opencv-python==4.10.0.84
+# Raspberry Pi GPIO dependencies — skipped automatically on Windows
+gpiozero==2.0.1; sys_platform == "linux"
+lgpio==0.2.2.0; sys_platform == "linux"

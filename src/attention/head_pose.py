@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from typing import Optional
+import math
 
 import cv2
 import mediapipe as mp
@@ -11,16 +12,16 @@ import numpy as np
 @dataclass
 class HeadPose:
     """
-    Orientation of the student's head.
+    Head orientation in degrees.
 
     yaw:
-        Left / right rotation.
+        Turning left or right.
 
     pitch:
-        Up / down rotation.
+        Looking up or down.
 
     roll:
-        Sideways head tilt.
+        Tilting toward the left or right shoulder.
     """
 
     yaw: float
@@ -30,13 +31,11 @@ class HeadPose:
 
 class HeadPoseEstimator:
     """
-    Detect facial landmarks and calculate head orientation.
+    Detect facial landmarks and estimate head orientation.
     """
 
     def __init__(self) -> None:
-        self.mp_face_mesh = mp.solutions.face_mesh
-
-        self.face_mesh = self.mp_face_mesh.FaceMesh(
+        self.face_mesh = mp.solutions.face_mesh.FaceMesh(
             static_image_mode=False,
             max_num_faces=1,
             refine_landmarks=False,
@@ -48,18 +47,9 @@ class HeadPoseEstimator:
         self,
         frame: np.ndarray,
     ) -> Optional[HeadPose]:
-        """
-        Estimate head pose from one camera frame.
-
-        Returns:
-            HeadPose if a face is found.
-            None if no face is detected.
-        """
 
         height, width = frame.shape[:2]
 
-        # OpenCV uses BGR.
-        # MediaPipe expects RGB.
         rgb_frame = cv2.cvtColor(
             frame,
             cv2.COLOR_BGR2RGB,
@@ -72,23 +62,21 @@ class HeadPoseEstimator:
 
         landmarks = results.multi_face_landmarks[0].landmark
 
-        # Important facial landmarks.
-        #
-        # These points represent:
-        # nose tip
-        # chin
-        # left eye corner
-        # right eye corner
-        # left mouth corner
-        # right mouth corner
+        # MediaPipe facial landmark indexes
+        nose_id = 1
+        chin_id = 152
+        left_eye_id = 33
+        right_eye_id = 263
+        left_mouth_id = 61
+        right_mouth_id = 291
 
         landmark_ids = [
-            1,
-            152,
-            33,
-            263,
-            61,
-            291,
+            nose_id,
+            chin_id,
+            left_eye_id,
+            right_eye_id,
+            left_mouth_id,
+            right_mouth_id,
         ]
 
         image_points = []
@@ -96,38 +84,38 @@ class HeadPoseEstimator:
         for landmark_id in landmark_ids:
             landmark = landmarks[landmark_id]
 
-            x = landmark.x * width
-            y = landmark.y * height
-
-            image_points.append([x, y])
+            image_points.append(
+                [
+                    landmark.x * width,
+                    landmark.y * height,
+                ]
+            )
 
         image_points = np.array(
             image_points,
             dtype=np.float64,
         )
 
-        # Approximate 3D coordinates of corresponding
-        # points on a generic human face.
+        # Approximate coordinates on a generic 3D face.
         model_points = np.array(
             [
-                [0.0, 0.0, 0.0],          # nose
-                [0.0, -63.6, -12.5],     # chin
-                [-43.3, 32.7, -26.0],    # left eye
-                [43.3, 32.7, -26.0],     # right eye
-                [-28.9, -28.9, -24.1],   # left mouth
-                [28.9, -28.9, -24.1],    # right mouth
+                [0.0, 0.0, 0.0],          # Nose
+                [0.0, -63.6, -12.5],     # Chin
+                [-43.3, 32.7, -26.0],    # Left eye
+                [43.3, 32.7, -26.0],     # Right eye
+                [-28.9, -28.9, -24.1],   # Left mouth
+                [28.9, -28.9, -24.1],    # Right mouth
             ],
             dtype=np.float64,
         )
 
-        # Approximate camera focal length.
-        focal_length = width
+        focal_length = float(width)
 
         camera_matrix = np.array(
             [
-                [focal_length, 0, width / 2],
-                [0, focal_length, height / 2],
-                [0, 0, 1],
+                [focal_length, 0.0, width / 2.0],
+                [0.0, focal_length, height / 2.0],
+                [0.0, 0.0, 1.0],
             ],
             dtype=np.float64,
         )
@@ -158,7 +146,27 @@ class HeadPoseEstimator:
 
         pitch = float(angles[0])
         yaw = float(angles[1])
-        roll = float(angles[2])
+
+        # -------------------------------------------------
+        # Calculate roll directly from the eye-corner line
+        # -------------------------------------------------
+
+        left_eye = landmarks[left_eye_id]
+        right_eye = landmarks[right_eye_id]
+
+        left_eye_x = left_eye.x * width
+        left_eye_y = left_eye.y * height
+
+        right_eye_x = right_eye.x * width
+        right_eye_y = right_eye.y * height
+
+        delta_x = right_eye_x - left_eye_x
+        delta_y = right_eye_y - left_eye_y
+
+        # Negative because image Y coordinates increase downward.
+        roll = -math.degrees(
+            math.atan2(delta_y, delta_x)
+        )
 
         return HeadPose(
             yaw=yaw,
@@ -167,8 +175,4 @@ class HeadPoseEstimator:
         )
 
     def close(self) -> None:
-        """
-        Release MediaPipe resources.
-        """
-
         self.face_mesh.close()

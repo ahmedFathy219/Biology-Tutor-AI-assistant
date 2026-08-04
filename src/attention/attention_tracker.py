@@ -8,6 +8,8 @@ from .attention_config import (
     DISTRACTION_TIME,
     MAX_PITCH_UP,
     MAX_YAW,
+    MAX_ROLL,
+    ROLL_TIME,  
     NO_FACE_TIME,
 )
 
@@ -28,6 +30,7 @@ class AttentionTracker:
     def __init__(self) -> None:
         self.looking_away_since: Optional[float] = None
         self.no_face_since: Optional[float] = None
+        self.head_tilt_since: Optional[float] = None
 
         self.current_state = AttentionState.FOCUSED
 
@@ -49,6 +52,7 @@ class AttentionTracker:
 
         if pose is None:
             self.looking_away_since = None
+            self.head_tilt_since = None
 
             if self.no_face_since is None:
                 self.no_face_since = now
@@ -70,6 +74,24 @@ class AttentionTracker:
         # ----------------------------------------
         # Looking away / distraction
         # ----------------------------------------
+
+        if abs(pose.roll)> MAX_ROLL:
+            if self.head_tilt_since is None:
+                self.head_tilt_since = now
+        
+            head_tilt_duration = (
+                now - self.head_tilt_since
+            )
+        
+            if head_tilt_duration>= ROLL_TIME:
+                self.current_state = (
+                    AttentionState.DISTRACTED
+            )
+        
+            return self.current_state
+        
+        else:
+            self.head_tilt_since = None
 
         looking_away = (
             abs(pose.yaw) > MAX_YAW
@@ -101,3 +123,5 @@ class AttentionTracker:
         self.current_state = AttentionState.FOCUSED
 
         return self.current_state
+
+        

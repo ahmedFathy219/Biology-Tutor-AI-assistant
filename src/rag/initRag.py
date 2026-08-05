@@ -13,9 +13,11 @@ from PIL import Image
 import io
 from tqdm import tqdm
 from uuid import uuid4
+import re
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_ollama import OllamaEmbeddings
+from langchain_ollama import ChatOllama
 from langchain_chroma import Chroma
 
 # --- Configuration ---
@@ -26,7 +28,9 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL","nomic-embed-text")
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE","1000"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP","200"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE","200"))          # embed 200 chunks at a time
-
+TOPIC_LLM_MODEL = "tinyllama:latest" #small model to detect chunk topic from allowed topic list
+TOPIC_BATCH_SIZE = 25 #number of chunks to call LLM on in the same prompt for topic detection
+ALLOWED_TOPICS = ["Cell Structure", "Genetics", "Ecology", "Psychology", "DNA", "Enzymes", "Human Anatomy", "Genetics", "General Biology", "MicroOrganisms", "Experiments"]
 
 if platform.system() == "Windows":
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -35,6 +39,34 @@ if platform.system() == "Windows":
 #ensure chromadb is empty
 shutil.rmtree(CHROMA_PATH)
 os.makedirs(CHROMA_PATH, exist_ok=True)
+
+def classify_chunks_batch(chunks: list[str], model_name: str = TOPIC_LLM_MODEL) -> list[str]:
+    #Send a batch of chunks to the LLM to get a list of corresponding topics
+
+    llm = ChatOllama(
+        model=model_name,
+        temperature=0.0, #no random output
+        base_url=OLLAMA_HOST,
+        num_predict=5,
+        num_ctx=2048
+    )
+
+    # Build prompt
+    numbered = "\n".join([f"{i+1}. {chunk[:300]}" for i, chunk in enumerate(chunks)])
+
+    prompt = f"""You are a biology topic classifier. Below are {len(chunks)} Biology text snippets. For each snippet, output EXACTLY ONE topic from this list: {', '.join(ALLOWED_TOPICS)}. If none fit, output "General Biology". Return ONLY the topics, one per line, in the same order as the snippets.
+    
+    Snippets:{numbered}
+
+    topics:"""
+
+    response = llm.invoke(prompt).content.strip()
+    topics = [line.strip() for line in response.split("\n") if line.strip()]
+    while len(topics) < len(chunks):
+        #if output less than expected, pad missing with "General Biology"
+        topics.append("General Biology")
+    return topics[:len(chunks)]
+
 
 def ocr_image(image_bytes: bytes) -> str:
     image = Image.open(io.BytesIO(image_bytes))
@@ -94,6 +126,18 @@ def process_pdfs():
                     })
 
     print(f"Total chunks to embed: {len(all_texts)}")
+
+    # --- Classify topics in batches ---
+    print("Classifying topics with tiny LLM...")
+    topics = []  # will hold topic for each chunk
+    for i in tqdm(range(0, len(all_texts), TOPIC_BATCH_SIZE), desc="Topic batches"):
+        batch = all_texts[i:i+TOPIC_BATCH_SIZE]
+        batch_topics = classify_chunks_batch(batch)
+        topics.extend(batch_topics)
+
+    # --- Attach topic to each metadata ---
+    for meta, topic in zip(all_metadatas, topics):
+        meta["topic"] = topic
 
     # --- Create vector store in batches ---
     embeddings = OllamaEmbeddings(

@@ -5,6 +5,7 @@ import threading
 from dotenv import load_dotenv
 
 from rag import BioAssistant
+from rag import QuizSession
 from stt import getSpeechToText
 from tts import getTTSEngine
 from wake_word import getWakeWordDetector
@@ -34,6 +35,17 @@ NO_MORE_QUESTIONS_RESPONSES = {
     "nothing else",
     "i am done",
     "i'm done",
+}
+
+QUIZ_START_COMMANDS = {
+    "quiz me",
+    "ask me a question",
+    "start a quiz",
+    "quiz",
+    "test me",
+    "give me a question",
+    "i want a quiz",
+    "ask me something",
 }
 
 YES_RESPONSES = {
@@ -222,6 +234,69 @@ def speakInterruptibly(
 
     return wake_detected.is_set()
 
+# ============================================================
+# Quiz Mode loop
+# ============================================================
+
+def quiz_loop(assistant, tts, speech_to_text, wake_word_detector):
+    print("\n[Quiz] Starting quiz mode.")
+    # Create a quiz session with assistant's LLM and retriever
+    quiz = QuizSession(assistant.llm, assistant.vectorstore)
+
+    # Initial greeting
+    tts.speak("Let's start a quiz. I'll ask you a biology question. Say 'stop' to quit.")
+
+    while True:
+        # Get pre‑generated question
+        question, topic, _ = quiz.get_next_question()
+        print(f"[Quiz] ({topic}) Q: {question}")
+
+        # Speak question (interruptible)
+        interrupted = speakInterruptibly(tts, wake_word_detector, question)
+        if interrupted:
+            tts.speak("Okay, back to study mode.")
+            break
+
+        # Listen to answer
+        print("[Quiz] Listening for answer...")
+        answer = speech_to_text.listenAndTranscribe().strip()
+        if answer in EXIT_APPLICATION_COMMANDS:
+            tts.speak("Okay, back to study mode.")
+            break
+        elif not answer:
+            tts.speak("I didn't catch that. Let's move on.")
+            quiz.record_result(topic, False)   # treat as incorrect
+        else:
+            print(f"[Student] {answer}")
+            # Evaluate with RAG
+            print("[Quiz] Checking your answer...")
+            feedback = quiz.evaluate(question, answer)
+            print(f"[Quiz] Feedback: {feedback}")
+
+            # Determine correctness (simple keyword check to update weakness)
+            correct = "correct" in feedback.lower() and "incorrect" not in feedback.lower()
+            quiz.record_result(topic, correct)
+            
+            # Speak feedback (interruptible)
+            interrupted = speakInterruptibly(tts, wake_word_detector, feedback)
+            if interrupted:
+                tts.speak("Alright, back to study mode.")
+                break
+
+        # Ask for another question
+        tts.speak("Would you like another question?")
+        resp = speech_to_text.listenAndTranscribe().strip()
+        if not resp or normalizeText(resp) in NO_MORE_QUESTIONS_RESPONSES | EXIT_APPLICATION_COMMANDS:
+            tts.speak("Great effort! Returning to study mode.")
+            break
+        elif normalizeText(resp) in YES_RESPONSES:
+            continue
+        else:
+            tts.speak("I'll take that as a yes.")
+            continue
+
+    # Clean up background thread
+    quiz.stop()
 
 # ============================================================
 # Main
@@ -244,7 +319,7 @@ def main() -> None:
     speech_to_text = getSpeechToText()
 
     assistant = BioAssistant()
-
+    print(f"Vectorstore type: {type(assistant.vectorstore)}") 
     tts = getTTSEngine()
 
     print(
@@ -354,7 +429,11 @@ def main() -> None:
                     should_stop_application = True
 
                     break
-
+                elif normalized_question in QUIZ_START_COMMANDS:
+                    quiz_loop(assistant, tts, speech_to_text, wake_word_detector)
+                    if not should_stop_application:
+                        wake_word_detector.start()
+                    break    
                 # ------------------------------------------------
                 # RAG
                 # ------------------------------------------------

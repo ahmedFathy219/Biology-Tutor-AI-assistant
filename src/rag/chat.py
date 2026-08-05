@@ -33,10 +33,7 @@ from langchain_community.chat_message_histories import (
 load_dotenv()
 
 
-# ============================================================
 # Configuration
-# ============================================================
-
 CHROMA_PATH = "data/chromadb"
 
 LLM_MODEL = os.getenv(
@@ -137,13 +134,9 @@ class BioAssistant:
             HISTORY_DIR,
             exist_ok=True,
         )
-
+        self.vectorstore = None
         self.chain = self.buildChain()
-
-    # --------------------------------------------------------
     # Chat history
-    # --------------------------------------------------------
-
     def getSessionHistory(
         self,
         session_id: str,
@@ -159,10 +152,7 @@ class BioAssistant:
             max_messages=MAX_MESSAGES,
         )
 
-    # --------------------------------------------------------
     # Format retrieved documents
-    # --------------------------------------------------------
-
     def formatDocs(self, docs):
         """
         Format retrieved documents and display their sources.
@@ -219,45 +209,32 @@ class BioAssistant:
             for doc in docs
         )
 
-    # --------------------------------------------------------
     # Build RAG chain
-    # --------------------------------------------------------
-
     def buildChain(self):
 
-        # ====================================================
         # 1. Load embeddings
-        # ====================================================
-
         embeddings = OllamaEmbeddings(
             model=EMBEDDING_MODEL,
             base_url=OLLAMA_HOST,
         )
 
-        # ====================================================
         # 2. Load ChromaDB
-        # ====================================================
-
         vectorstore = Chroma(
             persist_directory=CHROMA_PATH,
             embedding_function=embeddings,
         )
 
-        # ====================================================
-        # 3. Create retriever
-        # ====================================================
-
-        retriever = vectorstore.as_retriever(
+        self.vectorstore = vectorstore
+        
+        # 3. Create retriever and store as attribure
+        self.retriever = vectorstore.as_retriever(
             search_kwargs={
                 "k": K,
             }
         )
 
-        # ====================================================
-        # 4. Create Ollama LLM
-        # ====================================================
-
-        llm = ChatOllama(
+        # 4. Create Ollama LLM and store as attribute
+        self.llm = ChatOllama(
             model=LLM_MODEL,
             temperature=TEMP,
             base_url=OLLAMA_HOST,
@@ -265,10 +242,7 @@ class BioAssistant:
             num_ctx=NUM_CONTEXT,
         )
 
-        # ====================================================
         # 5. Prompt
-        # ====================================================
-
         final_prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -326,31 +300,25 @@ Retrieved biology context:
             ]
         )
 
-        # ====================================================
-        # 6. RAG pipeline
-        # ====================================================
-
+         # 6. RAG pipeline
         rag_chain = (
             RunnablePassthrough.assign(
                 context=(
                     RunnableLambda(
                         lambda x: x["input"]
                     )
-                    | retriever
+                    | self.retriever
                     | RunnableLambda(
                         self.formatDocs
                     )
                 )
             )
             | final_prompt
-            | llm
+            | self.llm
             | StrOutputParser()
         )
 
-        # ====================================================
         # 7. Add conversation history
-        # ====================================================
-
         conversation_chain = RunnableWithMessageHistory(
             rag_chain,
             self.getSessionHistory,
@@ -359,17 +327,17 @@ Retrieved biology context:
         )
 
         return conversation_chain
-
-    # --------------------------------------------------------
+    
     # Ask the assistant
-    # --------------------------------------------------------
-
     def answer(
         self,
         question: str,
         session_id: str = "bio_study",
     ) -> str:
 
+        if not question:
+            return "I did not hear your question."    
+            
         response = self.chain.invoke(
             {
                 "input": question,

@@ -1,7 +1,10 @@
 # src/weakness_tracker.py
 import random
 import math
+from utils import load_config
 
+
+ALLOWED_TOPICS = load_config()["ALLOWED_TOPICS"]
 class WeaknessTracker:
     """
     Tracks per‑topic weakness scores and samples topics
@@ -23,7 +26,8 @@ class WeaknessTracker:
     def sample_topic(self) -> str:
         """Return a topic using softmax over weakness scores."""
         if not self.scores:
-            return "General Biology"
+            # return random topic
+            return random.choice(ALLOWED_TOPICS)
         topics = list(self.scores.keys())
         # exponentiate scores scaled by temperature
         exp_scores = [math.exp(self.scores[t] / self.temperature) for t in topics]

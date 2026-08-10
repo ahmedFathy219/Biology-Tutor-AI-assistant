@@ -6,11 +6,12 @@ from dotenv import load_dotenv
 
 from rag import BioAssistant
 from rag import QuizSession
+from rag import FlashcardSession
+from rag import WeaknessTracker
 from stt import getSpeechToText
 from tts import getTTSEngine
 from wake_word import getWakeWordDetector
-
-
+from utils import load_config
 # ============================================================
 # Commands
 # ============================================================
@@ -48,6 +49,21 @@ QUIZ_START_COMMANDS = {
     "ask me something",
 }
 
+QUIZ_TOPIC_COMMANDS = {
+    "quiz me on ",
+    "quiz on ",
+    "quiz me about ",
+    "quiz about ",
+    "ask me a question on ",
+    "ask me a question about ",
+    "ask me something about ",
+    "ask me something on ", 
+}
+
+#load allowed topics from utils/config.json
+ALLOWED_TOPICS = load_config()["ALLOWED_TOPICS"]
+
+
 YES_RESPONSES = {
     "yes",
     "yeah",
@@ -57,6 +73,46 @@ YES_RESPONSES = {
     "i do",
     "i have another question",
 }
+
+
+FLASHCARD_START_COMMANDS = {
+    "flashcards",
+    "start flashcards",
+    "flashcard mode",
+    "study flashcards",
+    "flashcard",
+    "flash card",
+    "flash",
+    "cards",
+    "three"
+}
+
+# Inside the flashcard loop we’ll use these
+SHOW_ANSWER_COMMANDS = {
+    "show answer", "answer", "reveal", "show", "flip"
+}
+DIFFICULTY_RATINGS = {
+    "easy", "medium", "hard"
+}
+
+# helper function for quiz mode with specific topic
+def extract_topic(normalized_command: str) -> str | None:
+    """Check if the command contains a known topic phrase and return the topic.
+    Returns None if no topic found or the topic is not in ALLOWED_TOPICS."""
+    # Try known patterns
+    for command in QUIZ_TOPIC_COMMANDS:
+        if normalized_command.startswith(command):
+            topic_raw = normalized_command[len(command):].strip()
+            # compare to allowed topics
+            topic_lower = topic_raw.lower()
+            for allowed in ALLOWED_TOPICS:
+                if allowed.lower() == topic_lower:
+                    return allowed
+            # if not found return the topic read i title case
+            return topic_raw.title()
+    # No pattern matched
+    return None
+
 
 
 # ============================================================
@@ -238,18 +294,30 @@ def speakInterruptibly(
 # Quiz Mode loop
 # ============================================================
 
-def quiz_loop(assistant, tts, speech_to_text, wake_word_detector):
+def quiz_loop(assistant, tts, speech_to_text, wake_word_detector, weakness_tracker=None, topic=None):
+    #threshold used to determine how correct the user is
+    CONFIDENCE_THRESHOLD = 0.7
+    
     print("\n[Quiz] Starting quiz mode.")
     # Create a quiz session with assistant's LLM and retriever
-    quiz = QuizSession(assistant.llm, assistant.vectorstore)
 
+    if topic:
+        if topic.strip().title() in ALLOWED_TOPICS:
+            greeting = f"Let's quiz on {topic}. Say 'stop' to quit."
+            quiz = QuizSession(assistant.llm, assistant.vectorstore, weakness_tracker=weakness_tracker, focus_topic=topic.strip().title())
+        else:
+            tts.speak(f"Sorry, I don't have material on {topic}. Let's do a random topic instead.")
+            topic = None
+    else:
+        greeting = "Let's start a quiz. I'll ask you a biology question. Say 'stop' to quit."
+        quiz = QuizSession(assistant.llm, assistant.vectorstore, weakness_tracker=weakness_tracker)
     # Initial greeting
-    tts.speak("Let's start a quiz. I'll ask you a biology question. Say 'stop' to quit.")
+    tts.speak(greeting)
 
     while True:
         # Get pre‑generated question
-        question, topic, _ = quiz.get_next_question()
-        print(f"[Quiz] ({topic}) Q: {question}")
+        question, topic_used, _ = quiz.get_next_question()
+        print(f"[Quiz] ({topic_used}) Q: {question}")
 
         # Speak question (interruptible)
         interrupted = speakInterruptibly(tts, wake_word_detector, question)
@@ -260,23 +328,36 @@ def quiz_loop(assistant, tts, speech_to_text, wake_word_detector):
         # Listen to answer
         print("[Quiz] Listening for answer...")
         answer = speech_to_text.listenAndTranscribe().strip()
+
         if answer in EXIT_APPLICATION_COMMANDS:
             tts.speak("Okay, back to study mode.")
             break
         elif not answer:
             tts.speak("I didn't catch that. Let's move on.")
-            quiz.record_result(topic, False)   # treat as incorrect
+            quiz.record_result(topic_used, False)   # treat as incorrect
+       
+        
+        new_topic = extract_topic(normalizeText(answer))
+        if new_topic:
+            # start a new quiz session with a different topic
+            quiz.stop()
+            quiz_loop(assistant, tts, speech_to_text, wake_word_detector, topic=new_topic)
+            return
         else:
             print(f"[Student] {answer}")
-            # Evaluate with RAG
             print("[Quiz] Checking your answer...")
-            feedback = quiz.evaluate(question, answer)
-            print(f"[Quiz] Feedback: {feedback}")
 
-            # Determine correctness (simple keyword check to update weakness)
-            correct = "correct" in feedback.lower() and "incorrect" not in feedback.lower()
-            quiz.record_result(topic, correct)
-            
+            result = quiz.evaluate(question, answer)
+            feedback = result["feedback"]
+            confidence = result["confidence"]
+            isCorrect = result["correct"]
+            print("Correct" if isCorrect else "")
+            print(f"[Quiz] Feedback: {feedback} (confidence: {confidence:.2f})")
+
+            #only record result if confidence is highe enough
+            if confidence >= CONFIDENCE_THRESHOLD:
+                quiz.record_result(topic_used, isCorrect)
+                
             # Speak feedback (interruptible)
             interrupted = speakInterruptibly(tts, wake_word_detector, feedback)
             if interrupted:
@@ -286,6 +367,7 @@ def quiz_loop(assistant, tts, speech_to_text, wake_word_detector):
         # Ask for another question
         tts.speak("Would you like another question?")
         resp = speech_to_text.listenAndTranscribe().strip()
+
         if not resp or normalizeText(resp) in NO_MORE_QUESTIONS_RESPONSES | EXIT_APPLICATION_COMMANDS:
             tts.speak("Great effort! Returning to study mode.")
             break
@@ -297,6 +379,121 @@ def quiz_loop(assistant, tts, speech_to_text, wake_word_detector):
 
     # Clean up background thread
     quiz.stop()
+
+# ============================================================
+# FlashCard Mode loop
+# ============================================================
+
+def flashcard_loop(assistant, tts, speech_to_text, wake_word_detector, weakness_tracker=None):
+    """Interactive flashcard study with self‑evaluation and simple spacing."""
+    flashcards = FlashcardSession(assistant.llm, assistant.vectorstore, weakness_tracker)
+    print("\n[Flashcard] Starting flashcard mode.")
+
+    tts.speak("Flashcard mode. What topic would you like to study? Say 'weakest' for your weak topics.")
+    topic_choice = speech_to_text.listenAndTranscribe().strip()
+    topic_choice = normalizeText(topic_choice)
+    if not topic_choice or topic_choice in EXIT_APPLICATION_COMMANDS:
+        tts.speak("Okay, back to study mode.")
+        return
+
+    topic = flashcards.pick_topic(topic_choice)
+    tts.speak(f"Studying {topic}. I'll show you flashcards one by one.")
+
+    while True:
+        # 1. First, present any due cards
+        due_cards = flashcards.get_due_cards()
+        if due_cards:
+            for card in due_cards:
+                interrupted = _review_flashcard(card, tts, speech_to_text, wake_word_detector, flashcards)
+                if interrupted:
+                    tts.speak("Alright, back to study mode.")
+                    return
+                # After each card ask if they want to continue
+                tts.speak("Next flashcard?")
+                cont = speech_to_text.listenAndTranscribe().strip()
+                if not cont or normalizeText(cont) in NO_MORE_QUESTIONS_RESPONSES | EXIT_APPLICATION_COMMANDS:
+                    tts.speak("Great work! Returning to study mode.")
+                    return
+            continue   # loop again to check for more due cards
+
+        # 2. No due cards then generate a new one
+        tts.speak("Here's a new flashcard.")
+        new_card = flashcards.generate_flashcard(topic)
+        interrupted = _review_flashcard(new_card, tts, speech_to_text, wake_word_detector, flashcards)
+        if interrupted:
+            tts.speak("Alright, back to study mode.")
+            return
+
+        # Ask for continuation
+        tts.speak("Another flashcard?")
+        resp = speech_to_text.listenAndTranscribe().strip()
+        if not resp or normalizeText(resp) in NO_MORE_QUESTIONS_RESPONSES | EXIT_APPLICATION_COMMANDS:
+            tts.speak("Keep it up! Returning to study mode.")
+            return
+        # else continue loop
+
+# helper for flashcard_loop
+def _review_flashcard(card, tts, speech_to_text, wake_word_detector, flashcards) -> bool:
+    """
+    Present a single flashcard: show question, wait for user to say: 'show answer',
+    reveal answer, ask for difficulty rating, and schedule.
+    """
+    # Speak question (interruptible)
+    question_text = f"Question: {card['question']}"
+    print(f"\n[Flashcard] {question_text}")
+    #
+    # display question on lcd screen here
+    #
+    interrupted = speakInterruptibly(tts, wake_word_detector, question_text)
+    if interrupted:
+        return True
+
+    # Wait for "show answer"
+    print("[Flashcard] Waiting for 'show answer'...")
+    while True:
+        cmd = speech_to_text.listenAndTranscribe(wait_for_speech_seconds=5.0).strip()
+        if normalizeText(cmd) in SHOW_ANSWER_COMMANDS:
+            break
+        if not cmd or normalizeText(cmd) in EXIT_APPLICATION_COMMANDS:
+            tts.speak("Okay, moving on.")
+            return False   # treat as skip
+        tts.speak("Say 'show answer' when you're ready.")
+
+    # Reveal answer (interruptible)
+    answer_text = f"Answer: {card['answer']}"
+    print(f"[Flashcard] {answer_text}")
+    #
+    # display answer on lcd screen here
+    #
+    interrupted = speakInterruptibly(tts, wake_word_detector, answer_text)
+    if interrupted:
+        return True
+
+    # Ask difficulty rating
+    tts.speak("How difficult was that? Easy, medium, or hard?")
+    rating = speech_to_text.listenAndTranscribe(wait_for_speech_seconds=4.0).strip()
+    rating = normalizeText(rating)
+    if rating not in DIFFICULTY_RATINGS:
+        rating = "medium"   # default
+        print("[Flashcard] did not hear you, setting to mediam as default")
+    else:
+        print(f"[Flashcard] setting to {rating}")
+    flashcards.schedule_card(card, rating)
+
+    # Verbal confirmation of rating choice with human‑readable interval
+    interval_seconds = card["interval"]
+    if interval_seconds < 3600:
+        interval_str = f"{interval_seconds // 60} minutes"
+    elif interval_seconds < 86400:
+        interval_str = f"{interval_seconds // 3600} hours"
+    else:
+        interval_str = f"{interval_seconds // 86400} days"
+
+    confirm_msg = f"Marked as {rating}. It'll appear again in {interval_str}."
+    print(f"[Flashcard] {confirm_msg}")
+    tts.speak(confirm_msg)
+
+    return False
 
 # ============================================================
 # Main
@@ -319,6 +516,8 @@ def main() -> None:
     speech_to_text = getSpeechToText()
 
     assistant = BioAssistant()
+
+    weakness_tracker = WeaknessTracker()
     print(f"Vectorstore type: {type(assistant.vectorstore)}") 
     tts = getTTSEngine()
 
@@ -335,7 +534,6 @@ def main() -> None:
         # ====================================================
 
         while not should_stop_application:
-
             print(
                 "\n[Main] Waiting for wake word..."
             )
@@ -429,13 +627,27 @@ def main() -> None:
                     should_stop_application = True
 
                     break
-                elif normalized_question in QUIZ_START_COMMANDS:
-                    quiz_loop(assistant, tts, speech_to_text, wake_word_detector)
+                
+                topic = extract_topic(normalized_question)
+                if topic:
+                    # quiz mode with specific topic
+                    quiz_loop(assistant, tts, speech_to_text, wake_word_detector, weakness_tracker=weakness_tracker, topic=topic)
                     if not should_stop_application:
                         wake_word_detector.start()
-                    break    
+                    break        
+                if normalized_question in QUIZ_START_COMMANDS:
+                    # standard quiz mode with weakest random topic
+                    quiz_loop(assistant, tts, speech_to_text, wake_word_detector, weakness_tracker=weakness_tracker)
+                    if not should_stop_application:
+                        wake_word_detector.start()
+                    break
+                if normalized_question in FLASHCARD_START_COMMANDS:
+                    flashcard_loop(assistant, tts, speech_to_text, wake_word_detector, weakness_tracker)
+                    if not should_stop_application:
+                        wake_word_detector.start()
+                    break   
                 # ------------------------------------------------
-                # RAG
+                # Q&A
                 # ------------------------------------------------
 
                 response = assistant.answer(

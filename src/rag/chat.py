@@ -56,8 +56,6 @@ OLLAMA_HOST = os.getenv(
 
 HISTORY_DIR = "data/chat_histories"
 
-
-# Number of documents retrieved from ChromaDB
 K = int(
     os.getenv(
         "RAG_K",
@@ -65,18 +63,13 @@ K = int(
     )
 )
 
-
-# LLM temperature
 TEMP = float(
     os.getenv(
         "RAG_TEMP",
-        "0.8",
+        "0.6",
     )
 )
 
-
-# Limit the amount of previous conversation
-# sent to the LLM
 MAX_MESSAGES = int(
     os.getenv(
         "RAG_MAX_HISTORY_MESSAGES",
@@ -84,8 +77,6 @@ MAX_MESSAGES = int(
     )
 )
 
-
-# Ollama generation settings
 NUM_PREDICT = int(
     os.getenv(
         "RAG_NUM_PREDICT",
@@ -102,18 +93,15 @@ NUM_CONTEXT = int(
 
 
 # ============================================================
-# Limited Chat History
+# Limited chat history
 # ============================================================
 
-class LimitedFileChatMessageHistory(
-    FileChatMessageHistory
-):
+class LimitedFileChatMessageHistory(FileChatMessageHistory):
     """
-    File-based chat history with a maximum number
-    of stored messages.
+    File-based chat history with a maximum number of messages.
 
-    This prevents the conversation history from
-    becoming too large and slowing down the LLM.
+    This prevents the conversation history from becoming too
+    large and slowing down the LLM.
     """
 
     def __init__(
@@ -122,12 +110,10 @@ class LimitedFileChatMessageHistory(
         max_messages: int = MAX_MESSAGES,
     ):
         super().__init__(file_path)
-
         self.max_messages = max_messages
 
     @property
     def messages(self):
-
         messages = super().messages
 
         if len(messages) > self.max_messages:
@@ -150,13 +136,15 @@ class BioAssistant:
         )
 
         self.vectorstore = None
+
         self.retriever = None
+
         self.llm = None
 
         self.chain = self.buildChain()
 
     # ========================================================
-    # Chat History
+    # Chat history
     # ========================================================
 
     def getSessionHistory(
@@ -175,13 +163,12 @@ class BioAssistant:
         )
 
     # ========================================================
-    # Format Retrieved Documents
+    # Format retrieved documents
     # ========================================================
 
     def formatDocs(self, docs):
         """
-        Format retrieved documents and display
-        their sources.
+        Format retrieved documents and display their sources.
         """
 
         print("\n[RAG] Retrieved documents:")
@@ -233,30 +220,29 @@ class BioAssistant:
 
         print()
 
-        # Combine retrieved chunks into context.
         return "\n\n".join(
             doc.page_content
             for doc in docs
         )
 
     # ========================================================
-    # Build RAG Chain
+    # Build RAG chain
     # ========================================================
 
     def buildChain(self):
 
-        # ====================================================
-        # 1. Load Embeddings
-        # ====================================================
+        # ----------------------------------------------------
+        # 1. Load embeddings
+        # ----------------------------------------------------
 
         embeddings = OllamaEmbeddings(
             model=EMBEDDING_MODEL,
             base_url=OLLAMA_HOST,
         )
 
-        # ====================================================
+        # ----------------------------------------------------
         # 2. Load ChromaDB
-        # ====================================================
+        # ----------------------------------------------------
 
         vectorstore = Chroma(
             persist_directory=CHROMA_PATH,
@@ -269,9 +255,9 @@ class BioAssistant:
             f"Vectorstore type: {type(vectorstore)}"
         )
 
-        # ====================================================
-        # 3. Create Retriever
-        # ====================================================
+        # ----------------------------------------------------
+        # 3. Create retriever
+        # ----------------------------------------------------
 
         self.retriever = vectorstore.as_retriever(
             search_kwargs={
@@ -279,9 +265,9 @@ class BioAssistant:
             }
         )
 
-        # ====================================================
+        # ----------------------------------------------------
         # 4. Create Ollama LLM
-        # ====================================================
+        # ----------------------------------------------------
 
         self.llm = ChatOllama(
             model=LLM_MODEL,
@@ -291,76 +277,71 @@ class BioAssistant:
             num_ctx=NUM_CONTEXT,
         )
 
-        # ====================================================
-        # 5. Teacher Prompt
-        # ====================================================
+        # ----------------------------------------------------
+        # 5. Teacher-style prompt
+        # ----------------------------------------------------
 
         final_prompt = ChatPromptTemplate.from_messages(
             [
-
                 (
                     "system",
                     """
-You are Echo, a professional biology teacher
-helping a student learn biology.
+You are Echo, an experienced male biology teacher
+helping a student understand biology.
 
-Your job is to teach the student clearly and
-confidently, like an experienced classroom teacher.
+Your job is to teach, not simply give short answers.
 
 Use ONLY the retrieved biology context to answer
 the student's question.
 
 If the answer is not supported by the retrieved
 context, say that you do not have enough information
-from the provided biology material.
+in the provided biology material. Do not invent facts.
 
-Do not invent information or add unsupported facts.
+TEACHING STYLE:
 
-Your response will be spoken aloud using
-text-to-speech.
+Speak like a knowledgeable classroom teacher.
 
-Teaching style:
+Be calm, confident, professional, patient, and clear.
 
-Explain concepts step by step, as a teacher would
-explain them to a student in class.
+Do not sound overly casual, playful, childish, or like
+a personal friend.
 
-Start with the main idea, then explain the important
-details.
+Do not use excessive enthusiasm.
 
-Use simple language when possible, but keep correct
-biological terminology.
+Do not use phrases such as "Awesome!", "Great question!",
+"Absolutely!", or similar expressions unless genuinely
+appropriate.
 
-When an important biological term is introduced,
-briefly explain what it means before using it
-repeatedly.
+Explain the concept so that a student can understand
+WHY something is true, not only WHAT the answer is.
 
-Emphasize the key difference, relationship,
-process, or concept that the student needs
-to understand.
+When useful, briefly explain the key concept first and
+then explain the difference, relationship, or process.
 
-Use short examples or comparisons when they are
-supported by the retrieved context and help the
-student understand the concept.
+Use simple language while keeping the scientific terms
+accurate.
 
-Be calm, confident, patient, and instructional.
+If a scientific term is important, use the correct term
+and explain it naturally.
 
-Do not sound like a casual friend.
+For comparison questions, clearly explain the main
+differences and why those differences matter.
 
-Do not sound like a customer-service assistant.
+For process questions, explain the process in a logical
+order.
 
-Do not use phrases such as:
-"I'm glad I could help."
+For definition questions, give the definition first and
+then briefly explain it.
 
-"Feel free to ask."
+Do not unnecessarily repeat information.
 
-"You're welcome."
+Do not make answers longer than necessary.
 
-Avoid unnecessary friendly comments.
+The student is listening through text-to-speech, so your
+response must sound natural when spoken aloud.
 
-Do not praise the student unnecessarily.
-
-Do not repeat the student's question unless it
-helps introduce the explanation.
+TTS RULES:
 
 Do not use Markdown.
 
@@ -368,21 +349,27 @@ Do not use bullet points.
 
 Do not use numbered lists.
 
+Do not use tables.
+
 Do not use symbols or formatting.
 
-Because your response is spoken aloud, use natural
-sentences and short paragraphs.
+Use normal spoken sentences.
 
-Keep answers concise but educational.
+Use short paragraphs or sentences.
 
-If the student asks a simple question, give a
-direct explanation.
+Avoid complicated punctuation.
 
-If the student asks for more detail, expand the
-explanation and teach the concept step by step.
+Do not write stage directions.
 
-Do not ask "Do you have any more questions?"
-because the main application handles that separately.
+Do not say things like "according to the retrieved
+context" or "the documents say".
+
+Give a concise teacher-style explanation unless the
+student asks for more detail.
+
+If the student asks for more detail, explain the concept
+more deeply and use a simple example when supported by
+the retrieved context.
 
 Retrieved biology context:
 
@@ -401,9 +388,9 @@ Retrieved biology context:
             ]
         )
 
-        # ====================================================
-        # 6. RAG Pipeline
-        # ====================================================
+        # ----------------------------------------------------
+        # 6. RAG pipeline
+        # ----------------------------------------------------
 
         rag_chain = (
             RunnablePassthrough.assign(
@@ -422,9 +409,9 @@ Retrieved biology context:
             | StrOutputParser()
         )
 
-        # ====================================================
-        # 7. Add Conversation History
-        # ====================================================
+        # ----------------------------------------------------
+        # 7. Add conversation history
+        # ----------------------------------------------------
 
         conversation_chain = (
             RunnableWithMessageHistory(
@@ -438,7 +425,7 @@ Retrieved biology context:
         return conversation_chain
 
     # ========================================================
-    # Ask the Assistant
+    # Ask the assistant
     # ========================================================
 
     def answer(

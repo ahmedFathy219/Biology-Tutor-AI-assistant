@@ -33,7 +33,10 @@ from langchain_community.chat_message_histories import (
 load_dotenv()
 
 
+# ============================================================
 # Configuration
+# ============================================================
+
 CHROMA_PATH = "data/chromadb"
 
 LLM_MODEL = os.getenv(
@@ -53,6 +56,7 @@ OLLAMA_HOST = os.getenv(
 
 HISTORY_DIR = "data/chat_histories"
 
+
 # Number of documents retrieved from ChromaDB
 K = int(
     os.getenv(
@@ -60,6 +64,7 @@ K = int(
         "3",
     )
 )
+
 
 # LLM temperature
 TEMP = float(
@@ -69,13 +74,16 @@ TEMP = float(
     )
 )
 
-# Limit the amount of previous conversation sent to the LLM
+
+# Limit the amount of previous conversation
+# sent to the LLM
 MAX_MESSAGES = int(
     os.getenv(
         "RAG_MAX_HISTORY_MESSAGES",
         "10",
     )
 )
+
 
 # Ollama generation settings
 NUM_PREDICT = int(
@@ -94,15 +102,18 @@ NUM_CONTEXT = int(
 
 
 # ============================================================
-# Limited chat history
+# Limited Chat History
 # ============================================================
 
-class LimitedFileChatMessageHistory(FileChatMessageHistory):
+class LimitedFileChatMessageHistory(
+    FileChatMessageHistory
+):
     """
-    File-based chat history with a maximum number of messages.
+    File-based chat history with a maximum number
+    of stored messages.
 
-    This prevents the conversation history from becoming too
-    large and slowing down the LLM.
+    This prevents the conversation history from
+    becoming too large and slowing down the LLM.
     """
 
     def __init__(
@@ -111,10 +122,12 @@ class LimitedFileChatMessageHistory(FileChatMessageHistory):
         max_messages: int = MAX_MESSAGES,
     ):
         super().__init__(file_path)
+
         self.max_messages = max_messages
 
     @property
     def messages(self):
+
         messages = super().messages
 
         if len(messages) > self.max_messages:
@@ -130,13 +143,22 @@ class LimitedFileChatMessageHistory(FileChatMessageHistory):
 class BioAssistant:
 
     def __init__(self):
+
         os.makedirs(
             HISTORY_DIR,
             exist_ok=True,
         )
+
         self.vectorstore = None
+        self.retriever = None
+        self.llm = None
+
         self.chain = self.buildChain()
-    # Chat history
+
+    # ========================================================
+    # Chat History
+    # ========================================================
+
     def getSessionHistory(
         self,
         session_id: str,
@@ -152,16 +174,24 @@ class BioAssistant:
             max_messages=MAX_MESSAGES,
         )
 
-    # Format retrieved documents
+    # ========================================================
+    # Format Retrieved Documents
+    # ========================================================
+
     def formatDocs(self, docs):
         """
-        Format retrieved documents and display their sources.
+        Format retrieved documents and display
+        their sources.
         """
 
         print("\n[RAG] Retrieved documents:")
 
         if not docs:
-            print("[RAG] No documents were retrieved.")
+
+            print(
+                "[RAG] No documents were retrieved."
+            )
+
             return ""
 
         for i, doc in enumerate(docs, 1):
@@ -203,37 +233,56 @@ class BioAssistant:
 
         print()
 
-        # Combine retrieved chunks into context
+        # Combine retrieved chunks into context.
         return "\n\n".join(
             doc.page_content
             for doc in docs
         )
 
-    # Build RAG chain
+    # ========================================================
+    # Build RAG Chain
+    # ========================================================
+
     def buildChain(self):
 
-        # 1. Load embeddings
+        # ====================================================
+        # 1. Load Embeddings
+        # ====================================================
+
         embeddings = OllamaEmbeddings(
             model=EMBEDDING_MODEL,
             base_url=OLLAMA_HOST,
         )
 
+        # ====================================================
         # 2. Load ChromaDB
+        # ====================================================
+
         vectorstore = Chroma(
             persist_directory=CHROMA_PATH,
             embedding_function=embeddings,
         )
 
         self.vectorstore = vectorstore
-        
-        # 3. Create retriever and store as attribure
+
+        print(
+            f"Vectorstore type: {type(vectorstore)}"
+        )
+
+        # ====================================================
+        # 3. Create Retriever
+        # ====================================================
+
         self.retriever = vectorstore.as_retriever(
             search_kwargs={
                 "k": K,
             }
         )
 
-        # 4. Create Ollama LLM and store as attribute
+        # ====================================================
+        # 4. Create Ollama LLM
+        # ====================================================
+
         self.llm = ChatOllama(
             model=LLM_MODEL,
             temperature=TEMP,
@@ -242,28 +291,76 @@ class BioAssistant:
             num_ctx=NUM_CONTEXT,
         )
 
-        # 5. Prompt
+        # ====================================================
+        # 5. Teacher Prompt
+        # ====================================================
+
         final_prompt = ChatPromptTemplate.from_messages(
             [
+
                 (
                     "system",
                     """
-You are Echo, a friendly biology study assistant.
+You are Echo, a professional biology teacher
+helping a student learn biology.
 
-Use ONLY the retrieved biology context to answer the
-student's question.
+Your job is to teach the student clearly and
+confidently, like an experienced classroom teacher.
 
-If the answer is not supported by the retrieved context,
-say that you don't know rather than making up information.
+Use ONLY the retrieved biology context to answer
+the student's question.
 
-Your response will be spoken aloud using text-to-speech.
+If the answer is not supported by the retrieved
+context, say that you do not have enough information
+from the provided biology material.
 
-Follow these rules:
+Do not invent information or add unsupported facts.
 
-Speak naturally and conversationally.
+Your response will be spoken aloud using
+text-to-speech.
 
-Keep the explanation clear and easy for a student to
-understand.
+Teaching style:
+
+Explain concepts step by step, as a teacher would
+explain them to a student in class.
+
+Start with the main idea, then explain the important
+details.
+
+Use simple language when possible, but keep correct
+biological terminology.
+
+When an important biological term is introduced,
+briefly explain what it means before using it
+repeatedly.
+
+Emphasize the key difference, relationship,
+process, or concept that the student needs
+to understand.
+
+Use short examples or comparisons when they are
+supported by the retrieved context and help the
+student understand the concept.
+
+Be calm, confident, patient, and instructional.
+
+Do not sound like a casual friend.
+
+Do not sound like a customer-service assistant.
+
+Do not use phrases such as:
+"I'm glad I could help."
+
+"Feel free to ask."
+
+"You're welcome."
+
+Avoid unnecessary friendly comments.
+
+Do not praise the student unnecessarily.
+
+Do not repeat the student's question unless it
+helps introduce the explanation.
 
 Do not use Markdown.
 
@@ -273,15 +370,19 @@ Do not use numbered lists.
 
 Do not use symbols or formatting.
 
-Avoid unnecessary repetition.
+Because your response is spoken aloud, use natural
+sentences and short paragraphs.
 
-Give a concise answer unless the student asks for
-more detail.
+Keep answers concise but educational.
 
-Use natural sentences that sound good when spoken aloud.
+If the student asks a simple question, give a
+direct explanation.
 
-You can use short pauses by separating ideas into
-sentences.
+If the student asks for more detail, expand the
+explanation and teach the concept step by step.
+
+Do not ask "Do you have any more questions?"
+because the main application handles that separately.
 
 Retrieved biology context:
 
@@ -300,7 +401,10 @@ Retrieved biology context:
             ]
         )
 
-         # 6. RAG pipeline
+        # ====================================================
+        # 6. RAG Pipeline
+        # ====================================================
+
         rag_chain = (
             RunnablePassthrough.assign(
                 context=(
@@ -318,17 +422,25 @@ Retrieved biology context:
             | StrOutputParser()
         )
 
-        # 7. Add conversation history
-        conversation_chain = RunnableWithMessageHistory(
-            rag_chain,
-            self.getSessionHistory,
-            input_messages_key="input",
-            history_messages_key="chat_history",
+        # ====================================================
+        # 7. Add Conversation History
+        # ====================================================
+
+        conversation_chain = (
+            RunnableWithMessageHistory(
+                rag_chain,
+                self.getSessionHistory,
+                input_messages_key="input",
+                history_messages_key="chat_history",
+            )
         )
 
         return conversation_chain
-    
-    # Ask the assistant
+
+    # ========================================================
+    # Ask the Assistant
+    # ========================================================
+
     def answer(
         self,
         question: str,
@@ -336,8 +448,11 @@ Retrieved biology context:
     ) -> str:
 
         if not question:
-            return "I did not hear your question."    
-            
+
+            return (
+                "I did not hear your question."
+            )
+
         response = self.chain.invoke(
             {
                 "input": question,

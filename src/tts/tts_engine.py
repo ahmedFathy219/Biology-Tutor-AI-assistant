@@ -9,7 +9,7 @@ import threading
 
 class TTSEngine:
     def __init__(self):
-        self.voice = "en-US-AndrewNeural"
+        self.voice = "en-US-ChristopherNeural"
 
         pygame.mixer.init()
 
@@ -44,7 +44,7 @@ class TTSEngine:
         communicate = edge_tts.Communicate(
             text,
             self.voice,
-            rate="+10%",
+            rate="+8%",
         )
 
         await communicate.save(output_file)

@@ -3,10 +3,15 @@ import heapq
 import random
 import threading
 import time
+import uuid
+import os
+import json
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field
-
+from utils import load_config
+ALLOWED_TOPICS = load_config()["ALLOWED_TOPICS"]
+FLASHCARD_POOL_PATH = "data/state/cards.json"
 # Output format for one flashcard
 class FlashcardPair(BaseModel):
     question: str = Field(description="The question side of the flashcard")
@@ -44,6 +49,31 @@ class FlashcardSession:
         self.tracker = weakness_tracker
         self.pool = []                  # heapq of (due_timestamp, card_dict)
         self._lock = threading.Lock()
+        #restore from disk if this is not the first session
+        self._load_pool()
+
+    # helper for loading cards from disk
+    def _load_pool(self):
+        # load the pool from a JSON file and rebuild the heap between sessions
+        if not os.path.exists(FLASHCARD_POOL_PATH):
+            return
+        try:
+            with open(FLASHCARD_POOL_PATH, "r") as f:
+                cards = json.load(f)
+            for card in cards:
+                if card.get("due") is not None:
+                    heapq.heappush(self.pool, (card["due"], card))
+        except (json.JSONDecodeError, KeyError, IOError) as e:
+            print(f"[Flashcard] Error loading pool: {e}, starting empty.")
+
+    def _save_pool(self):
+        #write the current heap to the JSON
+        
+        #ensure directory exists
+        os.makedirs(os.path.dirname(FLASHCARD_POOL_PATH), exist_ok=True)    
+        cards = [card for (_, card) in self.pool]
+        with open(FLASHCARD_POOL_PATH, "w") as f:
+            json.dump(cards, f, indent=2)
 
     # helper to print retreived document references
     def _print_retrieved_docs(self, docs):
@@ -59,7 +89,7 @@ class FlashcardSession:
         print()
 
     # Generate a brand‑new flashcard for a given topic
-    def generate_flashcard(self, topic: str) -> dict:
+    def generate_flashcard(self, topic: str = None) -> dict:
         """
         Retrieve a chunk for `topic` and produce a {question, answer, topic} dict.
         Falls back to a random chunk if no chunks with that topic exist.
@@ -99,7 +129,7 @@ Output a JSON object with exactly two keys: "question" and "answer".
             "topic": topic,
             "interval": None,     # will be set on first rating
             "due": None,
-            "id": time.time()     # simple unique id
+            "id": str(uuid.uuid4())     # simple unique id
         }
 
     # ------------------------------------------------------------
@@ -108,7 +138,7 @@ Output a JSON object with exactly two keys: "question" and "answer".
     def schedule_card(self, card: dict, rating: str):
         """Calculate next review interval and push to heap."""
         now = time.time()
-        if card["interval"] is None:   # first review
+        if not card["interval"]:   # first review
             interval = self.DEFAULT_INTERVALS.get(rating, self.DEFAULT_INTERVALS["medium"])
         else:
             multiplier = self.EASE_MULTIPLIERS.get(rating, 1.0)
@@ -117,6 +147,7 @@ Output a JSON object with exactly two keys: "question" and "answer".
         card["due"] = now + interval
         with self._lock:
             heapq.heappush(self.pool, (card["due"], card))
+            self._save_pool()
 
     # ------------------------------------------------------------
     # Get all due cards (pops them from heap)
@@ -129,13 +160,19 @@ Output a JSON object with exactly two keys: "question" and "answer".
             while self.pool and self.pool[0][0] <= now:
                 _, card = heapq.heappop(self.pool)
                 due.append(card)
+            #update the pool on disk so it does not include removed cards    
+            self._save_pool()
         return due
 
     # ------------------------------------------------------------
     # Pick a topic – either user‑specified or from weaknesses
     # ------------------------------------------------------------
     def pick_topic(self, user_topic: str = None) -> str:
-        if user_topic and user_topic.lower() != "weakest":
-            return user_topic
+        if not user_topic:
+            #assume weakest
+            return self.tracker.sample_topic()
+        for allowed in ALLOWED_TOPICS:
+            if allowed.lower() == user_topic.lower():
+                return allowed
         # fallback to weakest topic
         return self.tracker.sample_topic()

@@ -20,7 +20,7 @@ from langchain_ollama import OllamaEmbeddings
 from langchain_ollama import ChatOllama
 from langchain_chroma import Chroma
 
-from utils import config_loader
+from utils import load_config
 # --- Configuration ---
 DATA_PATH = "data/bio_materials"
 CHROMA_PATH = "data/chromadb"
@@ -31,7 +31,7 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP","200"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE","200"))          # embed 200 chunks at a time
 TOPIC_LLM_MODEL = "tinyllama:latest" #small model to detect chunk topic from allowed topic list
 TOPIC_BATCH_SIZE = 25 #number of chunks to call LLM on in the same prompt for topic detection
-ALLOWED_TOPICS = config_loader()["ALLOWED_TOPICS"]
+ALLOWED_TOPICS = load_config()["ALLOWED_TOPICS"]
 
 if platform.system() == "Windows":
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"

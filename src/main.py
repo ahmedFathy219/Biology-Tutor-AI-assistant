@@ -11,6 +11,7 @@ from rag import WeaknessTracker
 from stt import getSpeechToText
 from tts import getTTSEngine
 from wake_word import getWakeWordDetector
+from attention import getAttentionMonitor
 from utils import load_config
 # ============================================================
 # Commands
@@ -546,10 +547,13 @@ def main() -> None:
     speech_to_text = getSpeechToText()
 
     assistant = BioAssistant()
+    attention_monitor = getAttentionMonitor()
 
     weakness_tracker = WeaknessTracker()
     print(f"Vectorstore type: {type(assistant.vectorstore)}") 
     tts = getTTSEngine()
+
+    
 
     print(
         "[Main] Study Buddy is ready."
@@ -583,6 +587,7 @@ def main() -> None:
 
             # Give microphone to STT.
             wake_word_detector.stop()
+            attention_monitor.start()
 
             # ------------------------------------------------
             # Greeting

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import threading
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 import cv2
 
@@ -72,9 +72,24 @@ class AttentionMonitor:
 
         self.buzzer = getBuzzerController()
 
+        self.state_callback: Optional[
+            Callable[[AttentionState], None]
+        ] = None
+
     # --------------------------------------------------
     # Start monitoring
     # --------------------------------------------------
+
+    def setStateCallback(
+        self,
+        callback: Callable[[AttentionState], None],
+    ) -> None:
+        """
+        Register a function that is called whenever
+        the student's attention state changes.
+        """
+    
+        self.state_callback = callback
 
     def start(self) -> None:
 
@@ -187,27 +202,48 @@ class AttentionMonitor:
                 # -------------------------------------
 
                 if state != previous_state:
-
+                
                     print(
                         "[Attention] State: "
                         f"{state.value}"
                     )
-
-                    # Buzzer only when entering
-                    # DISTRACTED state.
-                    if (
-                        state
-                        == AttentionState.DISTRACTED
-                    ):
+                
+                    # ------------------------------------------------
+                    # Buzzer
+                    # ------------------------------------------------
+                
+                    if state == AttentionState.DISTRACTED:
+                
                         self.buzzer.alert()
-
-                    # Stop buzzer when attention returns.
+                
                     elif (
                         previous_state
                         == AttentionState.DISTRACTED
                     ):
+                
                         self.buzzer.stop()
-
+                
+                
+                    # ------------------------------------------------
+                    # Notify main.py about the new attention state
+                    # ------------------------------------------------
+                
+                    if self.state_callback is not None:
+                
+                        try:
+                
+                            self.state_callback(
+                                state
+                            )
+                
+                        except Exception as error:
+                
+                            print(
+                                "[Attention] State callback error: "
+                                f"{error}"
+                            )
+                
+                
                     previous_state = state
 
                 # -------------------------------------

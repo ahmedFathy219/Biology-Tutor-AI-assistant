@@ -14,6 +14,7 @@ class TTSEngine:
         pygame.mixer.init()
 
         self.is_speaking = False
+        self.is_paused = False
         self.stop_requested = False
         self._lock = threading.Lock()
 
@@ -93,14 +94,30 @@ class TTSEngine:
             pygame.mixer.music.load(output_file)
             pygame.mixer.music.play()
 
-            # Wait while speech is playing.
-            while pygame.mixer.music.get_busy():
+            clock = pygame.time.Clock()
 
-                if self.stop_requested:
+            while True:
+
+                with self._lock:
+                    stop_requested = self.stop_requested
+                    is_paused = self.is_paused
+
+                # Completely stop speech
+                if stop_requested:
                     pygame.mixer.music.stop()
                     break
 
-                pygame.time.Clock().tick(20)
+                # If attention has paused Echo,
+                # remain here without ending speak()
+                if is_paused:
+                    clock.tick(20)
+                    continue
+
+                # Speech genuinely finished
+                if not pygame.mixer.music.get_busy():
+                    break
+
+                clock.tick(20)
 
         finally:
 
@@ -119,7 +136,49 @@ class TTSEngine:
 
             with self._lock:
                 self.is_speaking = False
+                self.is_paused = False
                 self.stop_requested = False
+
+    def pause(self):
+        """
+        Pause Echo's current speech without losing
+        the current position.
+        """
+
+        with self._lock:
+
+            if not self.is_speaking:
+                return
+
+            if self.is_paused:
+                return
+
+            self.is_paused = True
+
+        pygame.mixer.music.pause()
+
+        print("[TTS] Speech paused.")
+
+
+    def resume(self):
+        """
+        Continue Echo's speech after an attention pause.
+        """
+
+        with self._lock:
+
+            if not self.is_speaking:
+                return
+
+            if not self.is_paused:
+                return
+
+            self.is_paused = False
+
+        pygame.mixer.music.unpause()
+
+        print("[TTS] Speech resumed.")
+
 
     def stop(self):
         """
@@ -139,3 +198,11 @@ class TTSEngine:
 
         with self._lock:
             return self.is_speaking
+
+    def isPaused(self) -> bool:
+        """
+        Return True when Echo's speech is paused.
+        """
+            
+        with self._lock:
+            return self.is_paused

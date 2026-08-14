@@ -11,8 +11,10 @@ from rag import WeaknessTracker
 from stt import getSpeechToText
 from tts import getTTSEngine
 from wake_word import getWakeWordDetector
-from attention import getAttentionMonitor
+from attention import getAttentionMonitor,AttentionState
 from utils import load_config
+from display import TftDisplay
+from display.textPagination import paginateText
 # ============================================================
 # Commands
 # ============================================================
@@ -538,10 +540,20 @@ def main() -> None:
         "[Main] Initializing Study Buddy..."
     )
 
+    display = TftDisplay()
+
+    display.start()
+
+    display.showWakeGuide()
+
+    print(
+        "[Display] Echo display started."
+    )
+
     # --------------------------------------------------------
     # Initialize components
     # --------------------------------------------------------
-
+ 
     wake_word_detector = getWakeWordDetector()
 
     speech_to_text = getSpeechToText()
@@ -553,13 +565,74 @@ def main() -> None:
     print(f"Vectorstore type: {type(assistant.vectorstore)}") 
     tts = getTTSEngine()
 
+    attentionReady = threading.Event()
     
+    attentionReady.set()
+
+    def handleAttentionState(
+        state: AttentionState,
+    ) -> None:
+    
+        # ====================================================
+        # Student became distracted
+        # ====================================================
+    
+        if state in {
+            AttentionState.DISTRACTED,
+            AttentionState.NO_FACE,
+        }:
+    
+            # Only trigger once.
+            if attentionReady.is_set():
+    
+                print(
+                    "[Main] Student distracted. "
+                    "Pausing interaction."
+                )
+    
+                # Stop the rest of Echo from advancing.
+                attentionReady.clear()
+    
+                # Override current TFT screen.
+                display.showAttentionWarning()
+    
+                # Pause speech if Echo is currently speaking.
+                tts.pause()
+    
+            return
+    
+    
+        # ====================================================
+        # Student is focused again
+        # ====================================================
+    
+        if state == AttentionState.FOCUSED:
+    
+            if not attentionReady.is_set():
+    
+                print(
+                    "[Main] Attention restored. "
+                    "Resuming interaction."
+                )
+    
+                # Restore whatever screen Echo should
+                # currently be displaying.
+                display.clearAttentionWarning()
+    
+                # Continue speech from the same position.
+                tts.resume()
+    
+                # Allow the rest of Echo to continue.
+                attentionReady.set()
+
+    attention_monitor.setStateCallback(
+        handleAttentionState
+    )
 
     print(
         "[Main] Study Buddy is ready."
     )
 
-    
 
     try:
 
@@ -574,6 +647,8 @@ def main() -> None:
 
             # Reset previous wake-word detection state.
             wake_word_detector.clearBuffer()
+
+            
 
             # ------------------------------------------------
             # Wait for "Hey Echo"
@@ -605,6 +680,8 @@ def main() -> None:
                 greeting
             )
 
+            display.showListening()
+
             # ------------------------------------------------
             # Listen for first question
             # ------------------------------------------------
@@ -623,6 +700,7 @@ def main() -> None:
                 )
 
                 wake_word_detector.start()
+                display.showWakeGuide()
 
                 continue
 
@@ -685,23 +763,63 @@ def main() -> None:
                 # Q&A
                 # ------------------------------------------------
 
+                display.showThinking()
+
                 response = assistant.answer(
                     question
                 )
+
+                attentionReady.wait()
 
                 print(
                     f"[Echo] {response}"
                 )
 
                 # ------------------------------------------------
-                # INTERRUPTIBLE RAG RESPONSE
+                # Split answer into TFT pages
                 # ------------------------------------------------
 
-                interrupted = speakInterruptibly(
-                    tts,
-                    wake_word_detector,
-                    response,
+                answerPages = paginateText(
+                    response
                 )
+
+                totalPages = len(answerPages)
+
+                interrupted = False
+
+
+               # ------------------------------------------------
+                # Display and speak each page together
+                # ------------------------------------------------
+
+                interrupted = False
+
+                for pageIndex, pageText in enumerate(
+                    answerPages
+                ):
+                    attentionReady.wait()
+
+                    pageNumber = pageIndex + 1
+
+                    # Show the page Echo is about to speak
+                    display.showAnswering(
+                        pageText,
+                        pageNumber,
+                        totalPages,
+                    )
+                    speechPageText = pageText.replace( "\n", " ")
+
+
+                    # Speak exactly this page.
+                    # TTSEngine.speak() blocks until this page
+                    # has completely finished playing.
+                    interrupted = speakInterruptibly(
+                        tts,
+                        wake_word_detector,
+                        pageText,
+                    )
+                    if interrupted:
+                        break
 
                 # ------------------------------------------------
                 # Hey Echo interrupted the answer
@@ -716,6 +834,8 @@ def main() -> None:
 
                     # Make sure wake detector is stopped.
                     wake_word_detector.stop()
+
+                    display.showListening()
 
                     # Give student a new greeting.
                     new_greeting = (
@@ -767,6 +887,7 @@ def main() -> None:
                 tts.speak(
                     follow_up_prompt
                 )
+                display.showListening()
 
                 print(
                     "[Main] Waiting briefly "
@@ -875,6 +996,8 @@ def main() -> None:
                         question_prompt
                     )
 
+                    display.showListening()
+
                     next_question = (
                         speech_to_text
                         .listenAndTranscribe()
@@ -908,6 +1031,7 @@ def main() -> None:
             if not should_stop_application:
 
                 wake_word_detector.start()
+                display.showWakeGuide()
 
     except KeyboardInterrupt:
 
@@ -921,6 +1045,7 @@ def main() -> None:
         try:
 
             wake_word_detector.stop()
+            display.close()
 
         except Exception:
 

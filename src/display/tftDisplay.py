@@ -2,8 +2,6 @@ import multiprocessing as mp
 import time
 from queue import Empty
 
-from matplotlib.pyplot import draw
-
 
 SHOW_WAKE_GUIDE = "SHOW_WAKE_GUIDE"
 SHOW_LISTENING = "SHOW_LISTENING"
@@ -23,15 +21,7 @@ CLOSE_DISPLAY = "CLOSE_DISPLAY"
 def _runDisplay(commandQueue):
     """
     Runs the physical ST7735S TFT display.
-
-    The TFT runs in a separate process so display updates
-    do not block Echo's main program.
     """
-
-    # --------------------------------------------------------
-    # Import Raspberry Pi hardware libraries only inside
-    # the display process.
-    # --------------------------------------------------------
 
     import board
     import digitalio
@@ -48,41 +38,24 @@ def _runDisplay(commandQueue):
 
     print("[Display] Initializing physical TFT...")
 
-
-    # ========================================================
-    # GPIO / SPI configuration
-    # ========================================================
-
-    # TFT CS    -> GPIO8 / CE0 / physical pin 24
-    # TFT A0    -> GPIO25      / physical pin 22
-    # TFT RESET -> GPIO24      / physical pin 18
-    #
-    # TFT SDA   -> GPIO10 MOSI / physical pin 19
-    # TFT SCK   -> GPIO11 SCLK / physical pin 23
-    #
-    # TFT LED is connected directly to 3.3V.
-
     spi = board.SPI()
 
-    cs = digitalio.DigitalInOut(
-        board.D5
-    )
-
-    dc = digitalio.DigitalInOut(
-        board.D25
-    )
-
-    reset = digitalio.DigitalInOut(
-        board.D24
-    )
+    cs = digitalio.DigitalInOut(board.D5)
+    dc = digitalio.DigitalInOut(board.D25)
+    reset = digitalio.DigitalInOut(board.D24)
     backlight = DummyPin()
+
+    # Optional TE pin (V-Sync) if connected to D22
+    try:
+        te = digitalio.DigitalInOut(board.D22)
+        te.direction = digitalio.Direction.INPUT
+    except Exception:
+        te = None
 
 
     # ========================================================
     # ST7735S initialization
     # ========================================================
-    te = digitalio.DigitalInOut(board.D22)
-    te.direction = digitalio.Direction.INPUT
 
     display = st7735.ST7735S(
         spi,
@@ -90,126 +63,51 @@ def _runDisplay(commandQueue):
         cs=cs,
         bl=backlight,
         rst=reset,
-
-        # Native physical resolution
         width=160,
         height=128,
-
-        # Active area offsets used by this ST7735S driver
         x_offset=2,
         y_offset=1,
-
         rotation=0,
-
-        baudrate=16000000,
+        baudrate=32000000,  # Boost SPI to 32 MHz for sub-10ms transfers
     )
 
     WINDOW_WIDTH = display.width
     WINDOW_HEIGHT = display.height
 
-    print(
-        f"[Display] TFT initialized: "
-        f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}"
-    )
-
-
-    WINDOW_WIDTH = display.width
-    WINDOW_HEIGHT = display.height
-
-
-    print(
-        f"[Display] TFT initialized: "
-        f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}"
-    )
+    print(f"[Display] TFT initialized: {WINDOW_WIDTH}x{WINDOW_HEIGHT}")
 
 
     # ========================================================
     # Colors
     # ========================================================
 
-    backgroundColor = (
-        11,
-        16,
-        32,
-    )
-
-    mainTextColor = (
-        255,
-        255,
-        255,
-    )
-
-    secondaryTextColor = (
-        169,
-        180,
-        199,
-    )
-
-    accentColor = (
-        127,
-        219,
-        255,
-    )
-
-    warningColor = (
-        255,
-        204,
-        0,
-    )
+    backgroundColor = (11, 16, 32)
+    mainTextColor = (255, 255, 255)
+    secondaryTextColor = (169, 180, 199)
+    accentColor = (127, 219, 255)
+    warningColor = (255, 204, 0)
 
 
     # ========================================================
     # Fonts
     # ========================================================
 
-    def loadFont(
-        size,
-        bold=False,
-    ):
-
+    def loadFont(size, bold=False):
         try:
-
-            if bold:
-
-                path = (
-                    "/usr/share/fonts/truetype/"
-                    "dejavu/DejaVuSans-Bold.ttf"
-                )
-
-            else:
-
-                path = (
-                    "/usr/share/fonts/truetype/"
-                    "dejavu/DejaVuSans.ttf"
-                )
-
-            return ImageFont.truetype(
-                path,
-                size,
+            path = (
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+                if bold
+                else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
             )
-
+            return ImageFont.truetype(path, size)
         except Exception:
-
             return ImageFont.load_default()
 
 
-    titleFont = loadFont(
-        16,
-        bold=True,
-    )
-
-    headingFont = loadFont(
-        13,
-        bold=True,
-    )
-
-    bodyFont = loadFont(
-        10,
-    )
-
-    smallFont = loadFont(
-        8,
-    )
+    titleFont = loadFont(16, bold=True)
+    headingFont = loadFont(13, bold=True)
+    bodyFont = loadFont(10)
+    smallFont = loadFont(8)
 
 
     # ========================================================
@@ -217,12 +115,10 @@ def _runDisplay(commandQueue):
     # ========================================================
 
     attentionOverride = False
-
     baseCommand = SHOW_WAKE_GUIDE
 
     pulseSize = 16
     pulseDirection = 1
-
     lastPulseUpdate = time.monotonic()
 
 
@@ -231,880 +127,334 @@ def _runDisplay(commandQueue):
     # ========================================================
 
     def createFrame():
-        """
-        Create a new blank TFT image.
-        """
-
-        image = Image.new(
-            "RGB",
-            (
-                WINDOW_WIDTH,
-                WINDOW_HEIGHT,
-            ),
-            backgroundColor,
-        )
-
-        draw = ImageDraw.Draw(
-            image
-        )
-
+        image = Image.new("RGB", (WINDOW_WIDTH, WINDOW_HEIGHT), backgroundColor)
+        draw = ImageDraw.Draw(image)
         return image, draw
 
 
-    def sendFrame(image):
+    def sendFrame(image, bounding_box=None):
         """
-        Send the completed Pillow image to the TFT.
+        Sends the frame or cropped sub-region (bounding box) to hardware.
         """
+        if te is not None:
+            timeout = time.monotonic() + 0.03
+            while not te.value and time.monotonic() < timeout:
+                time.sleep(0.0005)
 
-        timeout = time.monotonic() + 0.05
-        while not te.value and time.monotonic() < timeout:
-            time.sleep(0.0005)
-
-        display.image(
-            image,
-            rotation=0,
-        )
-
-
-    def centerText(
-        draw,
-        y,
-        text,
-        font,
-        fill,
-    ):
-        """
-        Draw horizontally centered text.
-        """
-
-        box = draw.textbbox(
-            (0, 0),
-            text,
-            font=font,
-        )
-
-        textWidth = (
-            box[2] - box[0]
-        )
-
-        x = (
-            WINDOW_WIDTH - textWidth
-        ) // 2
-
-        draw.text(
-            (
-                x,
-                y,
-            ),
-            text,
-            font=font,
-            fill=fill,
-        )
+        if bounding_box:
+            # Crop image to just the dirty region to drastically reduce SPI payload
+            cropped = image.crop(bounding_box)
+            x0, y0, x1, y1 = bounding_box
+            display.image(cropped, rotation=0, x=x0, y=y0)
+        else:
+            display.image(image, rotation=0)
 
 
-    def drawMicrophone(
-        draw,
-        centerX,
-        centerY,
-    ):
-        """
-        Draw a small microphone icon.
-        """
+    def centerText(draw, y, text, font, fill):
+        box = draw.textbbox((0, 0), text, font=font)
+        textWidth = box[2] - box[0]
+        x = (WINDOW_WIDTH - textWidth) // 2
+        draw.text((x, y), text, font=font, fill=fill)
 
-        # Microphone body
+
+    def drawMicrophone(draw, centerX, centerY):
         draw.rounded_rectangle(
-            (
-                centerX - 7,
-                centerY - 14,
-                centerX + 7,
-                centerY + 8,
-            ),
+            (centerX - 7, centerY - 14, centerX + 7, centerY + 8),
             radius=5,
             outline=accentColor,
             width=2,
         )
-
-        # Holder
         draw.arc(
-            (
-                centerX - 12,
-                centerY - 5,
-                centerX + 12,
-                centerY + 14,
-            ),
+            (centerX - 12, centerY - 5, centerX + 12, centerY + 14),
             start=0,
             end=180,
             fill=accentColor,
             width=2,
         )
-
-        # Stand
         draw.line(
-            (
-                centerX,
-                centerY + 13,
-                centerX,
-                centerY + 20,
-            ),
+            (centerX, centerY + 13, centerX, centerY + 20),
             fill=accentColor,
             width=2,
         )
-
         draw.line(
-            (
-                centerX - 6,
-                centerY + 20,
-                centerX + 6,
-                centerY + 20,
-            ),
+            (centerX - 6, centerY + 20, centerX + 6, centerY + 20),
             fill=accentColor,
             width=2,
         )
 
 
     # ========================================================
-    # Wake guide
+    # Screen Renderers
     # ========================================================
 
-    def showWakeGuide():
-
-            image, draw = createFrame()
-
-            # ------------------------------------------------
-            # Title
-            # ------------------------------------------------
-
-            centerText(
-                draw,
-                8,
-                "ECHO",
-                titleFont,
-                mainTextColor,
-            )
-
-
-            # ------------------------------------------------
-            # Microphone
-            # ------------------------------------------------
-
-            microphoneX = 64
-            microphoneY = 65
-
-            draw.ellipse(
-                (
-                    microphoneX - pulseSize,
-                    microphoneY - pulseSize,
-                    microphoneX + pulseSize,
-                    microphoneY + pulseSize,
-                ),
-                outline=accentColor,
-                width=2,
-            )
-
-            drawMicrophone(
-                draw,
-                microphoneX,
-                microphoneY,
-            )
-
-
-            # ------------------------------------------------
-            # Instructions
-            # ------------------------------------------------
-
-            centerText(
-                draw,
-                105,
-                'Say "Hey Echo"',
-                headingFont,
-                mainTextColor,
-            )
-
-            centerText(
-                draw,
-                132,
-                "Waiting for you...",
-                smallFont,
-                secondaryTextColor,
-            )
-
-
-            sendFrame(
-                image
-            )
-
-    # ========================================================
-    # Listening
-    # ========================================================
-
-    def showListening():
-
+    def showWakeGuide(is_animating=False):
         image, draw = createFrame()
 
-
-        centerText(
-            draw,
-            8,
-            "ECHO",
-            titleFont,
-            mainTextColor,
-        )
-
+        centerText(draw, 8, "ECHO", titleFont, mainTextColor)
 
         microphoneX = 64
         microphoneY = 65
 
-
+        # Dynamic pulse radius
         draw.ellipse(
             (
-                microphoneX - 22,
-                microphoneY - 22,
-                microphoneX + 22,
-                microphoneY + 22,
+                microphoneX - pulseSize,
+                microphoneY - pulseSize,
+                microphoneX + pulseSize,
+                microphoneY + pulseSize,
             ),
             outline=accentColor,
             width=2,
         )
 
+        drawMicrophone(draw, microphoneX, microphoneY)
 
-        drawMicrophone(
-            draw,
-            microphoneX,
-            microphoneY,
+        centerText(draw, 105, 'Say "Hey Echo"', headingFont, mainTextColor)
+        centerText(draw, 132, "Waiting for you...", smallFont, secondaryTextColor)
+
+        if is_animating:
+            # Only update dirty region around mic (48x48 box instead of 160x128)
+            dirty_box = (
+                microphoneX - 24,
+                microphoneY - 24,
+                microphoneX + 24,
+                microphoneY + 24,
+            )
+            sendFrame(image, bounding_box=dirty_box)
+        else:
+            sendFrame(image)
+
+
+    def showListening(is_animating=False):
+        image, draw = createFrame()
+
+        centerText(draw, 8, "ECHO", titleFont, mainTextColor)
+
+        microphoneX = 64
+        microphoneY = 65
+
+        draw.ellipse(
+            (
+                microphoneX - pulseSize,
+                microphoneY - pulseSize,
+                microphoneX + pulseSize,
+                microphoneY + pulseSize,
+            ),
+            outline=accentColor,
+            width=2,
         )
 
+        drawMicrophone(draw, microphoneX, microphoneY)
 
-        centerText(
-            draw,
-            105,
-            "Listening...",
-            headingFont,
-            mainTextColor,
-        )
+        centerText(draw, 105, "Listening...", headingFont, mainTextColor)
+        centerText(draw, 132, "Ask me a question", smallFont, secondaryTextColor)
 
+        if is_animating:
+            dirty_box = (
+                microphoneX - 24,
+                microphoneY - 24,
+                microphoneX + 24,
+                microphoneY + 24,
+            )
+            sendFrame(image, bounding_box=dirty_box)
+        else:
+            sendFrame(image)
 
-        centerText(
-            draw,
-            132,
-            "Ask me a question",
-            smallFont,
-            secondaryTextColor,
-        )
-
-
-        sendFrame(
-            image
-        )
-
-
-    # ========================================================
-    # Thinking
-    # ========================================================
 
     def showThinking():
-
         image, draw = createFrame()
 
-
-        centerText(
-            draw,
-            10,
-            "ECHO",
-            titleFont,
-            mainTextColor,
-        )
-
-
-        # ------------------------------------------------
-        # Thinking dots
-        # ------------------------------------------------
+        centerText(draw, 10, "ECHO", titleFont, mainTextColor)
 
         centerX = 64
-
-        for offset in (
-            -18,
-            0,
-            18,
-        ):
-
+        for offset in (-18, 0, 18):
             x = centerX + offset
+            draw.ellipse((x - 4, 58, x + 4, 66), fill=accentColor)
 
-            draw.ellipse(
-                (
-                    x - 4,
-                    58,
-                    x + 4,
-                    66,
-                ),
-                fill=accentColor,
-            )
+        centerText(draw, 92, "Thinking...", headingFont, mainTextColor)
+        centerText(draw, 122, "Finding the answer", smallFont, secondaryTextColor)
+
+        sendFrame(image)
 
 
-        centerText(
-            draw,
-            92,
-            "Thinking...",
-            headingFont,
-            mainTextColor,
-        )
-
-
-        centerText(
-            draw,
-            122,
-            "Finding the answer",
-            smallFont,
-            secondaryTextColor,
-        )
-
-
-        sendFrame(
-            image
-        )
-    # ========================================================
-    # Answering
-    # ========================================================
-
-    def showAnswering(
-        answerText,
-        pageNumber,
-        totalPages,
-    ):
-
+    def showAnswering(answerText, pageNumber, totalPages):
         image, draw = createFrame()
 
-
-        # ------------------------------------------------
-        # Header
-        # ------------------------------------------------
-
-        centerText(
-            draw,
-            3,
-            "ECHO",
-            headingFont,
-            mainTextColor,
-        )
-
-
-        centerText(
-            draw,
-            20,
-            "Answering...",
-            bodyFont,
-            accentColor,
-        )
-
-
-        draw.line(
-            (
-                5,
-                35,
-                123,
-                35,
-            ),
-            fill=secondaryTextColor,
-        )
-
-
-        # ------------------------------------------------
-        # Answer text
-        # ------------------------------------------------
+        centerText(draw, 3, "ECHO", headingFont, mainTextColor)
+        centerText(draw, 20, "Answering...", bodyFont, accentColor)
+        draw.line((5, 35, 123, 35), fill=secondaryTextColor)
 
         draw.multiline_text(
-            (
-                5,
-                42,
-            ),
+            (5, 42),
             answerText,
             font=smallFont,
             fill=mainTextColor,
             spacing=2,
         )
 
-
-        # ------------------------------------------------
-        # Page indicator
-        # ------------------------------------------------
-
         if totalPages > 1:
+            pageText = f"{pageNumber}/{totalPages}"
+            draw.text((100, 147), pageText, font=smallFont, fill=secondaryTextColor)
 
-            pageText = (
-                f"{pageNumber}/{totalPages}"
-            )
+        sendFrame(image)
 
-            draw.text(
-                (
-                    100,
-                    147,
-                ),
-                pageText,
-                font=smallFont,
-                fill=secondaryTextColor,
-            )
-
-
-        sendFrame(
-            image
-        )
-
-
-    # ========================================================
-    # Attention warning
-    # ========================================================
 
     def showAttentionWarningScreen():
-
         image, draw = createFrame()
 
+        centerText(draw, 15, "!", titleFont, warningColor)
+        centerText(draw, 52, "PAY ATTENTION", headingFont, warningColor)
+        centerText(draw, 88, "Echo is paused", bodyFont, mainTextColor)
+        centerText(draw, 118, "Look back when ready", smallFont, secondaryTextColor)
 
-        centerText(
-            draw,
-            15,
-            "!",
-            titleFont,
-            warningColor,
-        )
-
-
-        centerText(
-            draw,
-            52,
-            "PAY ATTENTION",
-            headingFont,
-            warningColor,
-        )
-
-
-        centerText(
-            draw,
-            88,
-            "Echo is paused",
-            bodyFont,
-            mainTextColor,
-        )
-
-
-        centerText(
-            draw,
-            118,
-            "Look back when ready",
-            smallFont,
-            secondaryTextColor,
-        )
-
-
-        sendFrame(
-            image
-        )
+        sendFrame(image)
 
 
     # ========================================================
-    # Render normal Echo state
+    # Render dispatcher
     # ========================================================
 
-    def renderBaseCommand(
-        command,
-    ):
+    def renderBaseCommand(command, is_animating=False):
+        commandType = command[0] if isinstance(command, tuple) else command
 
-        if isinstance(
-            command,
-            tuple,
-        ):
-
-            commandType = command[0]
-
-        else:
-
-            commandType = command
-
-
-        if (
-            commandType
-            == SHOW_WAKE_GUIDE
-        ):
-
-            showWakeGuide()
-
-
-        elif (
-            commandType
-            == SHOW_LISTENING
-        ):
-
-            showListening()
-
-
-        elif (
-            commandType
-            == SHOW_THINKING
-        ):
-
+        if commandType == SHOW_WAKE_GUIDE:
+            showWakeGuide(is_animating=is_animating)
+        elif commandType == SHOW_LISTENING:
+            showListening(is_animating=is_animating)
+        elif commandType == SHOW_THINKING:
             showThinking()
+        elif commandType == SHOW_ANSWERING:
+            showAnswering(command[1], command[2], command[3])
 
 
-        elif (
-            commandType
-            == SHOW_ANSWERING
-        ):
-
-            answerText = command[1]
-            pageNumber = command[2]
-            totalPages = command[3]
-
-
-            showAnswering(
-                answerText,
-                pageNumber,
-                totalPages,
-            )
-
-
-    # ========================================================
-    # Initial screen
-    # ========================================================
-
-    renderBaseCommand(
-        baseCommand
-    )
-
+    # Render initial screen
+    renderBaseCommand(baseCommand, is_animating=False)
 
     running = True
 
 
     # ========================================================
-    # Display loop
+    # Main Display Loop
     # ========================================================
 
     try:
-
         while running:
-
-            # ------------------------------------------------
-            # Read all pending commands
-            # ------------------------------------------------
-
             try:
-
                 while True:
+                    command = commandQueue.get_nowait()
+                    commandType = command[0] if isinstance(command, tuple) else command
 
-                    command = (
-                        commandQueue.get_nowait()
-                    )
-
-
-                    if isinstance(
-                        command,
-                        tuple,
-                    ):
-
-                        commandType = (
-                            command[0]
-                        )
-
-                    else:
-
-                        commandType = command
-
-
-                    # ----------------------------------------
-                    # Attention warning
-                    # ----------------------------------------
-
-                    if (
-                        commandType
-                        == SHOW_ATTENTION_WARNING
-                    ):
-
+                    if commandType == SHOW_ATTENTION_WARNING:
                         attentionOverride = True
-
                         showAttentionWarningScreen()
 
-
-                    # ----------------------------------------
-                    # Attention restored
-                    # ----------------------------------------
-
-                    elif (
-                        commandType
-                        == CLEAR_ATTENTION_WARNING
-                    ):
-
+                    elif commandType == CLEAR_ATTENTION_WARNING:
                         attentionOverride = False
+                        renderBaseCommand(baseCommand, is_animating=False)
 
-                        renderBaseCommand(
-                            baseCommand
-                        )
-
-
-                    # ----------------------------------------
-                    # Close TFT
-                    # ----------------------------------------
-
-                    elif (
-                        commandType
-                        == CLOSE_DISPLAY
-                    ):
-
+                    elif commandType == CLOSE_DISPLAY:
                         running = False
                         break
 
-
-                    # ----------------------------------------
-                    # Normal Echo state
-                    # ----------------------------------------
-
                     else:
-
                         baseCommand = command
-
                         if not attentionOverride:
-
-                            renderBaseCommand(
-                                baseCommand
-                            )
-
+                            renderBaseCommand(baseCommand, is_animating=False)
 
             except Empty:
-
                 pass
 
 
             # ------------------------------------------------
-            # Microphone pulse animation
-            # ------------------------------------------------
-
-            # ------------------------------------------------
-            # Microphone pulse animation
+            # Animation Loop (Partial Dirty-Box Updates)
             # ------------------------------------------------
 
             now = time.monotonic()
 
-            if (
-                not attentionOverride
-                and now - lastPulseUpdate >= 0.12
-            ):
-                if isinstance(baseCommand, tuple):
-                    baseType = baseCommand[0]
-                else:
-                    baseType = baseCommand
+            if not attentionOverride and (now - lastPulseUpdate >= 0.10):
+                baseType = baseCommand[0] if isinstance(baseCommand, tuple) else baseCommand
 
                 if baseType in {SHOW_WAKE_GUIDE, SHOW_LISTENING}:
                     pulseSize += pulseDirection
 
-                    if pulseSize >= 20:
+                    if pulseSize >= 21:
                         pulseDirection = -1
                     elif pulseSize <= 16:
                         pulseDirection = 1
 
-                    # Only trigger redraw when pulse state changes
-                    renderBaseCommand(baseCommand)
+                    # Trigger partial update (sends only 48x48 pixel area)
+                    renderBaseCommand(baseCommand, is_animating=True)
 
                 lastPulseUpdate = now
 
-
-            time.sleep(
-                0.02
-            )
-
+            time.sleep(0.01)
 
     finally:
-
-        print(
-            "[Display] Shutting down TFT."
-        )
-
-
-        # Clear screen
+        print("[Display] Shutting down TFT.")
         try:
-
-            blank = Image.new(
-                "RGB",
-                (
-                    WINDOW_WIDTH,
-                    WINDOW_HEIGHT,
-                ),
-                backgroundColor,
-            )
-
-            display.image(
-                blank
-            )
-
-        except Exception:
-
-            pass
-
-
-        # Release GPIO resources
-        try:
-            cs.deinit()
+            blank = Image.new("RGB", (WINDOW_WIDTH, WINDOW_HEIGHT), backgroundColor)
+            display.image(blank)
         except Exception:
             pass
 
-        try:
-            dc.deinit()
-        except Exception:
-            pass
-
-        try:
-            reset.deinit()
-        except Exception:
-            pass
+        for pin in (cs, dc, reset):
+            try:
+                pin.deinit()
+            except Exception:
+                pass
 
 
 # ============================================================
-# Echo display controller
+# Echo Display Controller
 # ============================================================
 
 class TftDisplay:
     """
-    Controller used by Echo to communicate with
-    the physical Raspberry Pi TFT.
+    Controller used by Echo to communicate with the physical TFT process.
     """
 
-    def __init__(
-        self,
-    ):
-
-        self.context = (
-            mp.get_context(
-                "spawn"
-            )
-        )
-
-        self.commandQueue = (
-            self.context.Queue()
-        )
-
+    def __init__(self):
+        self.context = mp.get_context("spawn")
+        self.commandQueue = self.context.Queue()
         self.displayProcess = None
 
-
-    def start(
-        self,
-    ):
-        """
-        Start the physical TFT process.
-        """
-
-        if (
-            self.displayProcess
-            is not None
-            and
-            self.displayProcess.is_alive()
-        ):
+    def start(self):
+        if self.displayProcess is not None and self.displayProcess.is_alive():
             return
 
-
-        self.displayProcess = (
-            self.context.Process(
-                target=_runDisplay,
-                args=(
-                    self.commandQueue,
-                ),
-                daemon=True,
-            )
+        self.displayProcess = self.context.Process(
+            target=_runDisplay,
+            args=(self.commandQueue,),
+            daemon=True,
         )
-
-
         self.displayProcess.start()
 
+    def showWakeGuide(self):
+        self.commandQueue.put(SHOW_WAKE_GUIDE)
 
-    def showWakeGuide(
-        self,
-    ):
+    def showListening(self):
+        self.commandQueue.put(SHOW_LISTENING)
 
-        self.commandQueue.put(
-            SHOW_WAKE_GUIDE
-        )
+    def showThinking(self):
+        self.commandQueue.put(SHOW_THINKING)
 
+    def showAnswering(self, answerText, pageNumber=1, totalPages=1):
+        self.commandQueue.put((SHOW_ANSWERING, str(answerText), pageNumber, totalPages))
 
-    def showListening(
-        self,
-    ):
+    def showAttentionWarning(self):
+        self.commandQueue.put(SHOW_ATTENTION_WARNING)
 
-        self.commandQueue.put(
-            SHOW_LISTENING
-        )
+    def clearAttentionWarning(self):
+        self.commandQueue.put(CLEAR_ATTENTION_WARNING)
 
-
-    def showThinking(
-        self,
-    ):
-
-        self.commandQueue.put(
-            SHOW_THINKING
-        )
-
-
-    def showAnswering(
-        self,
-        answerText,
-        pageNumber=1,
-        totalPages=1,
-    ):
-
-        self.commandQueue.put(
-            (
-                SHOW_ANSWERING,
-                str(answerText),
-                pageNumber,
-                totalPages,
-            )
-        )
-
-
-    def showAttentionWarning(
-        self,
-    ):
-
-        self.commandQueue.put(
-            SHOW_ATTENTION_WARNING
-        )
-
-
-    def clearAttentionWarning(
-        self,
-    ):
-
-        self.commandQueue.put(
-            CLEAR_ATTENTION_WARNING
-        )
-
-
-    def close(
-        self,
-    ):
-        """
-        Close the TFT safely.
-        """
-
-        if (
-            self.displayProcess
-            is None
-        ):
-
+    def close(self):
+        if self.displayProcess is None:
             return
 
+        if self.displayProcess.is_alive():
+            self.commandQueue.put(CLOSE_DISPLAY)
+            self.displayProcess.join(timeout=2)
 
-        if (
-            self.displayProcess.is_alive()
-        ):
-
-            self.commandQueue.put(
-                CLOSE_DISPLAY
-            )
-
-
-            self.displayProcess.join(
-                timeout=2
-            )
-
-
-        if (
-            self.displayProcess.is_alive()
-        ):
-
+        if self.displayProcess.is_alive():
             self.displayProcess.terminate()
-
             self.displayProcess.join()

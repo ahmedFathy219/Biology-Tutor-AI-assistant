@@ -87,13 +87,38 @@ def _runDisplay(commandQueue):
         bl=backlight,
         rst=reset,
 
-        # Echo uses the TFT in landscape orientation.
-        width=160,
-        height=128,
+        # Native physical resolution
+        width=128,
+        height=160,
+
+        # Active area offsets used by this ST7735S driver
+        x_offset=2,
+        y_offset=1,
 
         rotation=0,
 
         baudrate=16000000,
+    )
+
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # The Adafruit ST7735S driver initializes MADCTL as 0x60,
+    # which puts the controller into a row/column-swapped mode.
+    #
+    # We want normal 128x160 portrait addressing first.
+    # --------------------------------------------------------
+
+    display.write(
+        0x36,       # MADCTL
+        b"\x00",
+    )
+
+    WINDOW_WIDTH = 128
+    WINDOW_HEIGHT = 160
+
+    print(
+        f"[Display] TFT initialized: "
+        f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}"
     )
 
 
@@ -241,7 +266,8 @@ def _runDisplay(commandQueue):
         """
 
         display.image(
-            image
+            image,
+            rotation=0,
         )
 
 
@@ -347,66 +373,70 @@ def _runDisplay(commandQueue):
 
     def showWakeGuide():
 
-        image, draw = createFrame()
+            image, draw = createFrame()
 
-        centerText(
-            draw,
-            6,
-            "ECHO",
-            titleFont,
-            mainTextColor,
-        )
+            # ------------------------------------------------
+            # Title
+            # ------------------------------------------------
 
-
-        microphoneX = (
-            WINDOW_WIDTH // 2
-        )
-
-        microphoneY = 53
+            centerText(
+                draw,
+                8,
+                "ECHO",
+                titleFont,
+                mainTextColor,
+            )
 
 
-        # Pulsing circle
-        draw.ellipse(
-            (
-                microphoneX - pulseSize,
-                microphoneY - pulseSize,
-                microphoneX + pulseSize,
-                microphoneY + pulseSize,
-            ),
-            outline=accentColor,
-            width=2,
-        )
+            # ------------------------------------------------
+            # Microphone
+            # ------------------------------------------------
+
+            microphoneX = 64
+            microphoneY = 65
+
+            draw.ellipse(
+                (
+                    microphoneX - 22,
+                    microphoneY - 22,
+                    microphoneX + 22,
+                    microphoneY + 22,
+                ),
+                outline=accentColor,
+                width=2,
+            )
+
+            drawMicrophone(
+                draw,
+                microphoneX,
+                microphoneY,
+            )
 
 
-        drawMicrophone(
-            draw,
-            microphoneX,
-            microphoneY,
-        )
+            # ------------------------------------------------
+            # Instructions
+            # ------------------------------------------------
+
+            centerText(
+                draw,
+                105,
+                'Say "Hey Echo"',
+                headingFont,
+                mainTextColor,
+            )
+
+            centerText(
+                draw,
+                132,
+                "Waiting for you...",
+                smallFont,
+                secondaryTextColor,
+            )
 
 
-        centerText(
-            draw,
-            86,
-            'Say "Hey Echo"',
-            headingFont,
-            mainTextColor,
-        )
-
-
-        centerText(
-            draw,
-            108,
-            "Waiting for you...",
-            smallFont,
-            secondaryTextColor,
-        )
-
-
-        sendFrame(
-            image
-        )
-
+            sendFrame(
+                image
+            )
 
     # ========================================================
     # Listening
@@ -419,26 +449,23 @@ def _runDisplay(commandQueue):
 
         centerText(
             draw,
-            6,
+            8,
             "ECHO",
             titleFont,
             mainTextColor,
         )
 
 
-        microphoneX = (
-            WINDOW_WIDTH // 2
-        )
-
-        microphoneY = 53
+        microphoneX = 64
+        microphoneY = 65
 
 
         draw.ellipse(
             (
-                microphoneX - pulseSize,
-                microphoneY - pulseSize,
-                microphoneX + pulseSize,
-                microphoneY + pulseSize,
+                microphoneX - 22,
+                microphoneY - 22,
+                microphoneX + 22,
+                microphoneY + 22,
             ),
             outline=accentColor,
             width=2,
@@ -454,7 +481,7 @@ def _runDisplay(commandQueue):
 
         centerText(
             draw,
-            86,
+            105,
             "Listening...",
             headingFont,
             mainTextColor,
@@ -463,7 +490,7 @@ def _runDisplay(commandQueue):
 
         centerText(
             draw,
-            108,
+            132,
             "Ask me a question",
             smallFont,
             secondaryTextColor,
@@ -486,19 +513,19 @@ def _runDisplay(commandQueue):
 
         centerText(
             draw,
-            7,
+            10,
             "ECHO",
             titleFont,
             mainTextColor,
         )
 
 
-        centerX = (
-            WINDOW_WIDTH // 2
-        )
+        # ------------------------------------------------
+        # Thinking dots
+        # ------------------------------------------------
 
+        centerX = 64
 
-        # Three thinking dots
         for offset in (
             -18,
             0,
@@ -510,9 +537,9 @@ def _runDisplay(commandQueue):
             draw.ellipse(
                 (
                     x - 4,
-                    45,
+                    58,
                     x + 4,
-                    53,
+                    66,
                 ),
                 fill=accentColor,
             )
@@ -520,7 +547,7 @@ def _runDisplay(commandQueue):
 
         centerText(
             draw,
-            72,
+            92,
             "Thinking...",
             headingFont,
             mainTextColor,
@@ -529,8 +556,8 @@ def _runDisplay(commandQueue):
 
         centerText(
             draw,
-            97,
-            "Finding the best answer",
+            122,
+            "Finding the answer",
             smallFont,
             secondaryTextColor,
         )
@@ -539,8 +566,6 @@ def _runDisplay(commandQueue):
         sendFrame(
             image
         )
-
-
     # ========================================================
     # Answering
     # ========================================================
@@ -550,14 +575,14 @@ def _runDisplay(commandQueue):
         pageNumber,
         totalPages,
     ):
-        """
-        Display one synchronized page of Echo's answer.
-        """
 
         image, draw = createFrame()
 
 
+        # ------------------------------------------------
         # Header
+        # ------------------------------------------------
+
         centerText(
             draw,
             3,
@@ -579,52 +604,44 @@ def _runDisplay(commandQueue):
         draw.line(
             (
                 5,
-                34,
-                WINDOW_WIDTH - 5,
-                34,
+                35,
+                123,
+                35,
             ),
             fill=secondaryTextColor,
         )
 
 
-        # Answer
+        # ------------------------------------------------
+        # Answer text
+        # ------------------------------------------------
+
         draw.multiline_text(
             (
-                6,
-                40,
+                5,
+                42,
             ),
             answerText,
-            font=bodyFont,
+            font=smallFont,
             fill=mainTextColor,
             spacing=2,
         )
 
 
-        # Page number
+        # ------------------------------------------------
+        # Page indicator
+        # ------------------------------------------------
+
         if totalPages > 1:
 
             pageText = (
                 f"{pageNumber}/{totalPages}"
             )
 
-            box = draw.textbbox(
-                (0, 0),
-                pageText,
-                font=smallFont,
-            )
-
-            textWidth = (
-                box[2] - box[0]
-            )
-
             draw.text(
                 (
-                    WINDOW_WIDTH
-                    - textWidth
-                    - 5,
-
-                    WINDOW_HEIGHT
-                    - 12,
+                    100,
+                    147,
                 ),
                 pageText,
                 font=smallFont,
@@ -648,7 +665,7 @@ def _runDisplay(commandQueue):
 
         centerText(
             draw,
-            10,
+            15,
             "!",
             titleFont,
             warningColor,
@@ -657,7 +674,7 @@ def _runDisplay(commandQueue):
 
         centerText(
             draw,
-            40,
+            52,
             "PAY ATTENTION",
             headingFont,
             warningColor,
@@ -666,7 +683,7 @@ def _runDisplay(commandQueue):
 
         centerText(
             draw,
-            69,
+            88,
             "Echo is paused",
             bodyFont,
             mainTextColor,
@@ -675,7 +692,7 @@ def _runDisplay(commandQueue):
 
         centerText(
             draw,
-            92,
+            118,
             "Look back when ready",
             smallFont,
             secondaryTextColor,

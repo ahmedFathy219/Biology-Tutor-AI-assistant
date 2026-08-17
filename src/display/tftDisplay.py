@@ -2,6 +2,8 @@ import multiprocessing as mp
 import time
 from queue import Empty
 
+from matplotlib.pyplot import draw
+
 
 SHOW_WAKE_GUIDE = "SHOW_WAKE_GUIDE"
 SHOW_LISTENING = "SHOW_LISTENING"
@@ -79,6 +81,8 @@ def _runDisplay(commandQueue):
     # ========================================================
     # ST7735S initialization
     # ========================================================
+    te = digitalio.DigitalInOut(board.D22)
+    te.direction = digitalio.Direction.INPUT
 
     display = st7735.ST7735S(
         spi,
@@ -88,8 +92,8 @@ def _runDisplay(commandQueue):
         rst=reset,
 
         # Native physical resolution
-        width=128,
-        height=160,
+        width=160,
+        height=128,
 
         # Active area offsets used by this ST7735S driver
         x_offset=2,
@@ -100,21 +104,8 @@ def _runDisplay(commandQueue):
         baudrate=16000000,
     )
 
-    # --------------------------------------------------------
-    # IMPORTANT:
-    # The Adafruit ST7735S driver initializes MADCTL as 0x60,
-    # which puts the controller into a row/column-swapped mode.
-    #
-    # We want normal 128x160 portrait addressing first.
-    # --------------------------------------------------------
-
-    display.write(
-        0x36,       # MADCTL
-        b"\x00",
-    )
-
-    WINDOW_WIDTH = 128
-    WINDOW_HEIGHT = 160
+    WINDOW_WIDTH = display.width
+    WINDOW_HEIGHT = display.height
 
     print(
         f"[Display] TFT initialized: "
@@ -265,6 +256,10 @@ def _runDisplay(commandQueue):
         Send the completed Pillow image to the TFT.
         """
 
+        timeout = time.monotonic() + 0.05
+        while not te.value and time.monotonic() < timeout:
+            time.sleep(0.0005)
+
         display.image(
             image,
             rotation=0,
@@ -397,10 +392,10 @@ def _runDisplay(commandQueue):
 
             draw.ellipse(
                 (
-                    microphoneX - 22,
-                    microphoneY - 22,
-                    microphoneX + 22,
-                    microphoneY + 22,
+                    microphoneX - pulseSize,
+                    microphoneY - pulseSize,
+                    microphoneX + pulseSize,
+                    microphoneY + pulseSize,
                 ),
                 outline=accentColor,
                 width=2,
@@ -879,55 +874,31 @@ def _runDisplay(commandQueue):
             # Microphone pulse animation
             # ------------------------------------------------
 
-            now = time.monotonic()
+            # ------------------------------------------------
+            # Microphone pulse animation
+            # ------------------------------------------------
 
+            now = time.monotonic()
 
             if (
                 not attentionOverride
-                and now - lastPulseUpdate
-                >= 0.12
+                and now - lastPulseUpdate >= 0.12
             ):
-
-                if isinstance(
-                    baseCommand,
-                    tuple,
-                ):
-
-                    baseType = (
-                        baseCommand[0]
-                    )
-
+                if isinstance(baseCommand, tuple):
+                    baseType = baseCommand[0]
                 else:
+                    baseType = baseCommand
 
-                    baseType = (
-                        baseCommand
-                    )
-
-
-                if baseType in {
-                    SHOW_WAKE_GUIDE,
-                    SHOW_LISTENING,
-                }:
-
-                    pulseSize += (
-                        pulseDirection
-                    )
-
+                if baseType in {SHOW_WAKE_GUIDE, SHOW_LISTENING}:
+                    pulseSize += pulseDirection
 
                     if pulseSize >= 20:
-
                         pulseDirection = -1
-
-
                     elif pulseSize <= 16:
-
                         pulseDirection = 1
 
-
-                    renderBaseCommand(
-                        baseCommand
-                    )
-
+                    # Only trigger redraw when pulse state changes
+                    renderBaseCommand(baseCommand)
 
                 lastPulseUpdate = now
 

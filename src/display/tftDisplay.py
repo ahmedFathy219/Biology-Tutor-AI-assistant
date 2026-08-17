@@ -62,7 +62,7 @@ def _runDisplay(commandQueue):
     spi = board.SPI()
 
     cs = digitalio.DigitalInOut(
-        board.CE0
+        board.D5
     )
 
     dc = digitalio.DigitalInOut(

@@ -53,7 +53,12 @@ display = st7735.ST7735S(
     cs=cs,
     bl=backlight,
     rst=reset,
+
+    width=160,
+    height=128,
+
     rotation=0,
+
     baudrate=16000000,
 )
 

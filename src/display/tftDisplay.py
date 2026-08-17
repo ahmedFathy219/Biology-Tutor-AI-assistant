@@ -86,11 +86,12 @@ def _runDisplay(commandQueue):
         cs=cs,
         bl=backlight,
         rst=reset,
-        
 
-        # Physical display is 128x160.
-        # Rotate 90 degrees to use landscape orientation.
-        rotation=90,
+        # Echo uses the TFT in landscape orientation.
+        width=160,
+        height=128,
+
+        rotation=0,
 
         baudrate=16000000,
     )

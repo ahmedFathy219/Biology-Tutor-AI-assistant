@@ -7,9 +7,9 @@ from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from pydantic import BaseModel, Field
 from collections import deque
 from .weakness_tracker import WeaknessTracker
-from utils import load_config
+from utils import load_available_topics
 
-ALLOWED_TOPICS = load_config()["ALLOWED_TOPICS"]
+ALLOWED_TOPICS = load_available_topics()
 
 # LLM output format for evaluation
 class EvaluationResult(BaseModel):
@@ -19,7 +19,7 @@ class EvaluationResult(BaseModel):
 
 
 class QuizSession:
-    def __init__(self, llm, vectorstore, weakness_tracker=None, max_pool_size=5, focus_topic=None):
+    def __init__(self, llm, vectorstore, weakness_tracker=None, max_pool_size=2, focus_topic=None):
         self.llm = llm
         self.vectorstore = vectorstore          
         self.pool = queue.Queue(maxsize=max_pool_size)
@@ -32,8 +32,7 @@ class QuizSession:
         self._gen_thread = None
 
         # Pre‑fill the pool synchronously
-        for _ in range(max_pool_size):
-            self._generate_one()
+        
 
         # start background refill thread
         self._fill_pool()
@@ -51,6 +50,7 @@ class QuizSession:
             else:
                 # Sleep a little to avoid busy‑waiting
                 self._stop_event.wait(0.2)
+            self._stop_event.wait(0.1)
 
     def _generate_one(self):
         try:
@@ -59,43 +59,54 @@ class QuizSession:
                 topic = self.focus_topic
             else: #get random topic  
                 topic = self.tracker.sample_topic()
-            query = f"{topic} biology" if topic else "biology"
+
+            query = f"key concepts about {topic}"
+
             # 2. Retrieve a random chunk with that topic using vectorstore
+
+            CANDIDATE_POOL_SIZE = 20
+
             docs = self.vectorstore.similarity_search(
-                query,               # dummy query
-                k=5,                     # get a few and pick randomly
+                query,
+                k=CANDIDATE_POOL_SIZE,                     # get a large set
                 filter={"topic": topic}
             )
+
+            # if no documents retrieved, fallback to a search using the same querry but no filter
             if not docs:
-                docs = self.vectorstore.similarity_search("biology", k=5)
+                docs = self.vectorstore.similarity_search(query, k=CANDIDATE_POOL_SIZE)
+
                 if not docs:
+                    print("[ERROR] No documents retrieved")
+                    self._stop_event.set() # stop the loop
                     return
+            
+            fresh_docs = [d for d in docs if d.metadata.get("id") not in self.recent_chunks]
+
+            #choose randomly from fresh docs
+            if fresh_docs:
+                chunk = random.choice(fresh_docs)
+            else: #fallback to all docs
                 chunk = random.choice(docs)
-                topic = chunk.metadata.get("topic", "General Biology")
-                chunk = chunk.page_content.strip()
-                
-            else:
-                fresh_docs = [d for d in docs if d.page_content.strip() not in self.recent_chunks]
 
-                if fresh_docs:
-                    chunk = random.choice(fresh_docs)
-                else:
-                    chunk = random.choice(docs).page_content.strip()
-
+            chunk_text = chunk.page_content.strip()
+            chunk_id = chunk.metadata.get("id")    
+            self.recent_chunks.append(chunk.metadata.get("id"))
             # 3. Generate question (fast LLM call)
             prompt = ChatPromptTemplate.from_messages([
-                ("system", "You are a biology quiz generator. Given the text, create ONE clear, spoken‑style quiz question. Output ONLY the question."),
-                ("human", "{text}")
+                ("system", "You are a biology quiz generator. Given the context, create ONE clear, spoken‑style quiz question. Output ONLY the question."),
+                ("human", "{context}")
             ])
             chain = prompt | self.llm | StrOutputParser()
-            question = chain.invoke({"text": chunk}).strip()
+            question = chain.invoke({"context": chunk_text}).strip()
 
             # 4. Store in pool
-            self.pool.put((question, topic, chunk), block=False)
+            self.pool.put((question, topic, chunk_text), block=False)
         except queue.Full:
             pass
         except Exception as e:
             print(f"[QuizGen] error: {e}")
+            self._stop_event.set()  #stop the loop
 
     # ------------------------------------------------------------
     # Public API
@@ -138,10 +149,11 @@ class QuizSession:
         """Return (question, topic, context_chunk)."""
         return self.pool.get()
 
-    def evaluate(self, question: str, user_answer: str) -> dict:
+    def evaluate(self, question: str, chunk: str, user_answer: str) -> dict:
         # Retrieve 2 relevant chunks (no filter needed)
-        docs = self.vectorstore.similarity_search(question, k=2)
-        context = "\n".join(doc.page_content.strip() for doc in docs)
+        
+        # use the same chunk that was used in question generation
+        context = chunk
 
         parser = JsonOutputParser(pydantic_object=EvaluationResult)    
             

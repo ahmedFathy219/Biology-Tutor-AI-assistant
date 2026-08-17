@@ -9,8 +9,8 @@ import json
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field
-from utils import load_config
-ALLOWED_TOPICS = load_config()["ALLOWED_TOPICS"]
+from utils import load_available_topics
+AVAILABLE_TOPICS = load_available_topics()
 FLASHCARD_POOL_PATH = "data/state/cards.json"
 # Output format for one flashcard
 class FlashcardPair(BaseModel):
@@ -33,14 +33,14 @@ class FlashcardSession:
     DEFAULT_INTERVALS = {
         "easy":   86400 * 4,   # 4 days
         "medium": 86400,       # 1 day
-        "hard":   3600 * 2,    # 2 hours (so it comes back in the same session)
+        "hard":   3600 * 0.5,    # 30 mins (so it comes back in the same session)
     }
 
     # Multipliers for reviewed cards
     EASE_MULTIPLIERS = {
         "easy":   2.5, 
         "medium": 1.5,
-        "hard":   1.0,         # stays the same (minimum 1 day)
+        "hard":   1.0,         # stays the same (minimum 30 minutes)
     }
 
     def __init__(self, llm, vectorstore, weakness_tracker, max_pool_size=5):
@@ -99,15 +99,28 @@ class FlashcardSession:
             # generate random topic from tracker
             topic = self.tracker.sample_topic()
         # Retrieve relevant content
-        query = f"{topic} biology"
+        
+        query = f"key concepts about {topic}"
+        
+        # 2. Retrieve a random chunk with that topic using vectorstore
+
+        CANDIDATE_POOL_SIZE = 20
+
         docs = self.vectorstore.similarity_search(
-            query, k=3, filter={"topic": topic}
+            query,
+            k=CANDIDATE_POOL_SIZE,                     # get a large set
+            filter={"topic": topic}
         )
+        
+
         if not docs:
-            docs = self.vectorstore.similarity_search(query, k=3)
+            docs = self.vectorstore.similarity_search(query, k=CANDIDATE_POOL_SIZE)
+            if not docs:
+                print("[ERROR] No documents retrieved")
+                return {}
 
         self._print_retrieved_docs(docs)
-        chunk = random.choice(docs).page_content.strip()
+        chunk_text = random.choice(docs).page_content.strip()
 
         # Generate Q&A
         parser = JsonOutputParser(pydantic_object=FlashcardPair)
@@ -120,7 +133,7 @@ Output a JSON object with exactly two keys: "question" and "answer".
         ])
         chain = prompt | self.llm | parser
         result = chain.invoke({
-            "text": chunk,
+            "text": chunk_text,
             "format_instructions": parser.get_format_instructions()
         })
         return {
@@ -153,7 +166,7 @@ Output a JSON object with exactly two keys: "question" and "answer".
     # Get all due cards (pops them from heap)
     # ------------------------------------------------------------
     def get_due_cards(self) -> list[dict]:
-        """Return list of card dicts whose due time ≤ now."""
+        """Return list of card dicts whose due time <= now."""
         now = time.time()
         due = []
         with self._lock:
@@ -171,7 +184,7 @@ Output a JSON object with exactly two keys: "question" and "answer".
         if not user_topic:
             #assume weakest
             return self.tracker.sample_topic()
-        for allowed in ALLOWED_TOPICS:
+        for allowed in AVAILABLE_TOPICS:
             if allowed.lower() == user_topic.lower():
                 return allowed
         # fallback to weakest topic

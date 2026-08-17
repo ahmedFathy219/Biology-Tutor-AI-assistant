@@ -41,6 +41,7 @@ def _runDisplay(commandQueue):
     )
 
     from adafruit_rgb_display import st7735
+    from adafruit_rgb_display.rgb import DummyPin
 
 
     print("[Display] Initializing physical TFT...")
@@ -72,6 +73,7 @@ def _runDisplay(commandQueue):
     reset = digitalio.DigitalInOut(
         board.D24
     )
+    backlight = DummyPin()
 
 
     # ========================================================
@@ -80,9 +82,11 @@ def _runDisplay(commandQueue):
 
     display = st7735.ST7735S(
         spi,
-        cs=cs,
         dc=dc,
+        cs=cs,
+        bl=backlight,
         rst=reset,
+        
 
         # Physical display is 128x160.
         # Rotate 90 degrees to use landscape orientation.

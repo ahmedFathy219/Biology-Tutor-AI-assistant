@@ -3,8 +3,8 @@ import textwrap
 
 def paginateText(
     text,
-    charactersPerLine=48,
-    linesPerPage=8,
+    charactersPerLine=24,
+    linesPerPage=6,
 ):
     """
     Split an answer into TFT-sized pages.

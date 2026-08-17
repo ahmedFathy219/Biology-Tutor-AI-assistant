@@ -114,8 +114,8 @@ class BuzzerController:
         # background=True prevents the buzzer pattern from
         # stopping the camera-processing loop.
         self._buzzer.beep(
-            on_time=0.20,
-            off_time=0.12,
+            on_time=0.70,
+            off_time=0.30,
             n=3,
             background=True,
         )

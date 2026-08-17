@@ -3,10 +3,10 @@ import json
 import os
 import random
 import math
-from utils import load_config
+from utils import load_available_topics
 
 WEAKNESS_TRACKER_PATH = "data/state/tracker.json"
-ALLOWED_TOPICS = load_config()["ALLOWED_TOPICS"]
+ALLOWED_TOPICS = load_available_topics()
 class WeaknessTracker:
     """
     Tracks per‑topic weakness scores and samples topics
@@ -24,9 +24,9 @@ class WeaknessTracker:
                 with open(WEAKNESS_TRACKER_PATH, "r") as f:
                     self.scores = json.load(f)
             except (json.JSONDecodeError, IOError):
-                self.scores = None
+                self.scores = {}
         else:
-            self.scores = None
+            self.scores = {}
     def _save_scores(self):
         os.makedirs(os.path.dirname(WEAKNESS_TRACKER_PATH), exist_ok=True)  
         with open(WEAKNESS_TRACKER_PATH, "w") as f:

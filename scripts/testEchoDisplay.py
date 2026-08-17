@@ -1,223 +1,59 @@
+import sys
 import time
-
-import board
-import digitalio
-
-from PIL import Image, ImageDraw, ImageFont
-
-from adafruit_rgb_display import st7735
-from adafruit_rgb_display.rgb import DummyPin
+from pathlib import Path
 
 
-print("[TFT Test] Starting...")
-
-
-# ============================================================
-# SPI
-# ============================================================
-
-spi = board.SPI()
-
-
-# ============================================================
-# GPIO
-# ============================================================
-
-# CS -> GPIO5 / physical pin 29
-cs = digitalio.DigitalInOut(
-    board.D5
-)
-
-# A0 / DC -> GPIO25 / physical pin 22
-dc = digitalio.DigitalInOut(
-    board.D25
-)
-
-# RESET -> GPIO24 / physical pin 18
-reset = digitalio.DigitalInOut(
-    board.D24
-)
-
-# LED is connected directly to 3.3V,
-# so we do not control the backlight through GPIO.
-backlight = DummyPin()
-
-
-# ============================================================
-# Display
-# ============================================================
-
-display = st7735.ST7735S(
-    spi,
-    dc=dc,
-    cs=cs,
-    bl=backlight,
-    rst=reset,
-
-    width=160,
-    height=128,
-
-    rotation=0,
-
-    baudrate=16000000,
-)
-
-
-print(
-    f"[TFT Test] Display detected: "
-    f"{display.width}x{display.height}"
-)
-
-
-# ============================================================
-# Test 1 - Red screen
-# ============================================================
-
-image = Image.new(
-    "RGB",
-    (
-        display.width,
-        display.height,
-    ),
-    "red",
-)
-
-display.image(image)
-
-print("[TFT Test] RED")
-time.sleep(2)
-
-
-# ============================================================
-# Test 2 - Green screen
-# ============================================================
-
-image = Image.new(
-    "RGB",
-    (
-        display.width,
-        display.height,
-    ),
-    "green",
-)
-
-display.image(image)
-
-print("[TFT Test] GREEN")
-time.sleep(2)
-
-
-# ============================================================
-# Test 3 - Blue screen
-# ============================================================
-
-image = Image.new(
-    "RGB",
-    (
-        display.width,
-        display.height,
-    ),
-    "blue",
-)
-
-display.image(image)
-
-print("[TFT Test] BLUE")
-time.sleep(2)
-
-
-# ============================================================
-# Test 4 - Text
-# ============================================================
-
-image = Image.new(
-    "RGB",
-    (
-        display.width,
-        display.height,
-    ),
-    "black",
-)
-
-draw = ImageDraw.Draw(image)
-
-
-try:
-
-    font = ImageFont.truetype(
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        16,
+sys.path.append(
+    str(
+        Path(__file__).resolve().parents[1]
+        / "src"
     )
-
-    small_font = ImageFont.truetype(
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        11,
-    )
-
-except Exception:
-
-    font = ImageFont.load_default()
-    small_font = ImageFont.load_default()
-
-
-draw.text(
-    (35, 25),
-    "ECHO",
-    font=font,
-    fill="cyan",
-)
-
-draw.text(
-    (15, 65),
-    "TFT WORKING",
-    font=small_font,
-    fill="white",
-)
-
-draw.rectangle(
-    (
-        5,
-        5,
-        display.width - 6,
-        display.height - 6,
-    ),
-    outline="yellow",
-    width=2,
 )
 
 
-display.image(image)
-
-print("[TFT Test] Text screen displayed.")
+from display import TftDisplay
 
 
-# Keep image visible
-try:
+def main():
 
-    while True:
-        time.sleep(1)
+    display = TftDisplay()
 
-except KeyboardInterrupt:
+    display.start()
 
-    print("\n[TFT Test] Closing...")
+    try:
+
+        print("Wake guide")
+        display.showWakeGuide()
+        time.sleep(3)
+
+        print("Listening")
+        display.showListening()
+        time.sleep(3)
+
+        print("Thinking")
+        display.showThinking()
+        time.sleep(3)
+
+        print("Answering")
+        display.showAnswering(
+            "Cells are the basic\nunits of life.",
+            1,
+            2,
+        )
+        time.sleep(4)
+
+        print("Attention warning")
+        display.showAttentionWarning()
+        time.sleep(3)
+
+        print("Restoring")
+        display.clearAttentionWarning()
+        time.sleep(3)
+
+    finally:
+
+        display.close()
 
 
-finally:
-
-    # Clear TFT
-    image = Image.new(
-        "RGB",
-        (
-            display.width,
-            display.height,
-        ),
-        "black",
-    )
-
-    display.image(image)
-
-    cs.deinit()
-    dc.deinit()
-    reset.deinit()
-
-    print("[TFT Test] Finished.")
+if __name__ == "__main__":
+    main()

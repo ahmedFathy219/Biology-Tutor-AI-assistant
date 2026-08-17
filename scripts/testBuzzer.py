@@ -37,7 +37,7 @@ def main() -> None:
 
         # The hardware beep pattern runs in the background,
         # so wait before closing the GPIO resource.
-        time.sleep(2)
+        time.sleep(6)
 
     finally:
         buzzer.close()

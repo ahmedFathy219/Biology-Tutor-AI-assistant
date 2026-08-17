@@ -3,7 +3,7 @@ import textwrap
 
 def paginateText(
     text,
-    charactersPerLine=24,
+    charactersPerLine=26,
     linesPerPage=6,
 ):
     """

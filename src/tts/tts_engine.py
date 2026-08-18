@@ -3,21 +3,17 @@ import pygame
 import tempfile
 import os
 import threading
+import struct
+import wave
 
+import numpy as np
 import requests
 
 
 class TTSEngine:
     def __init__(self):
-        # Pocket TTS server
-        self.tts_url = "http://127.0.0.1:8000/tts"
-
-        # Pre-generated voice profile served locally.
-        # The voice profile is created from attenborough-ref.wav
-        # and saved as attenborough-voice.safetensors.
-        self.voice_url = (
-            "http://127.0.0.1:8001/attenborough-voice.safetensors"
-        )
+        # Our streaming Pocket TTS server
+        self.tts_url = "http://127.0.0.1:8002/tts-stream"
 
         pygame.mixer.init()
 
@@ -45,35 +41,93 @@ class TTSEngine:
 
         return text.strip()
 
-    def _generate_speech(self, text: str, output_file: str):
+    def _read_exact(self, response, size):
         """
-        Sends text to the running Pocket TTS server using
-        the pre-generated Attenborough voice profile.
-
-        The voice profile is served locally through HTTP,
-        so Echo does not upload the reference WAV file
-        with every TTS request.
+        Read exactly `size` bytes from the streaming response.
         """
 
-        response = requests.post(
-            self.tts_url,
-            data={
-                "text": text,
-                "voice_url": self.voice_url,
-            },
-            timeout=300,
+        data = bytearray()
+
+        while len(data) < size:
+
+            chunk = response.raw.read(
+                size - len(data)
+            )
+
+            if not chunk:
+                return None
+
+            data.extend(chunk)
+
+        return bytes(data)
+
+    def _play_wav_bytes(self, wav_bytes):
+        """
+        Save one streamed WAV chunk to a temporary file
+        and play it with pygame.
+        """
+
+        temp_file = tempfile.NamedTemporaryFile(
+            suffix=".wav",
+            delete=False,
         )
 
-        response.raise_for_status()
+        temp_path = temp_file.name
 
-        with open(output_file, "wb") as output:
-            output.write(response.content)
+        try:
+
+            temp_file.write(wav_bytes)
+            temp_file.close()
+
+            pygame.mixer.music.load(temp_path)
+            pygame.mixer.music.play()
+
+            clock = pygame.time.Clock()
+
+            while True:
+
+                with self._lock:
+                    stop_requested = self.stop_requested
+                    is_paused = self.is_paused
+
+                if stop_requested:
+
+                    pygame.mixer.music.stop()
+                    return False
+
+                if is_paused:
+
+                    clock.tick(20)
+                    continue
+
+                if not pygame.mixer.music.get_busy():
+                    break
+
+                clock.tick(50)
+
+            return True
+
+        finally:
+
+            pygame.mixer.music.stop()
+
+            try:
+                pygame.mixer.music.unload()
+            except pygame.error:
+                pass
+
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
     def speak(self, text: str):
         """
-        Generate and play speech.
+        Stream speech from Pocket TTS.
 
-        This function can be interrupted using stop().
+        Playback starts as soon as the first audio chunk
+        is generated instead of waiting for the entire
+        response.
         """
 
         cleaned_text = self.clean_text(text)
@@ -85,88 +139,93 @@ class TTSEngine:
             self.stop_requested = False
             self.is_speaking = True
 
-        output_file = None
+        first_chunk = True
 
         try:
-            # Create temporary WAV file
-            with tempfile.NamedTemporaryFile(
-                suffix=".wav",
-                delete=False,
-            ) as temp_file:
 
-                output_file = temp_file.name
-
-            # Generate speech using Pocket TTS
-            self._generate_speech(
-                cleaned_text,
-                output_file,
+            print(
+                f"[TTS] Starting streaming generation "
+                f"({len(cleaned_text)} characters)..."
             )
 
-            # Check whether stop() was called while
-            # Pocket TTS was generating the audio.
-            with self._lock:
-                if self.stop_requested:
-                    return
+            response = requests.post(
+                self.tts_url,
+                data={
+                    "text": cleaned_text,
+                },
+                stream=True,
+                timeout=300,
+            )
 
-            # Play speech
-            pygame.mixer.music.load(output_file)
-            pygame.mixer.music.play()
-
-            clock = pygame.time.Clock()
+            response.raise_for_status()
 
             while True:
 
-                with self._lock:
-                    stop_requested = self.stop_requested
-                    is_paused = self.is_paused
+                # Read 4-byte chunk size
+                header = self._read_exact(
+                    response,
+                    4,
+                )
 
-                # Completely stop speech
-                if stop_requested:
-                    pygame.mixer.music.stop()
+                if header is None:
                     break
 
-                # If attention has paused Echo,
-                # remain here without ending speak()
-                if is_paused:
-                    clock.tick(20)
-                    continue
+                chunk_size = struct.unpack(
+                    "!I",
+                    header,
+                )[0]
 
-                # Speech genuinely finished
-                if not pygame.mixer.music.get_busy():
+                if chunk_size <= 0:
                     break
 
-                clock.tick(20)
+                # Read actual WAV chunk
+                wav_bytes = self._read_exact(
+                    response,
+                    chunk_size,
+                )
+
+                if wav_bytes is None:
+                    break
+
+                if first_chunk:
+
+                    print(
+                        "[TTS] First audio chunk received. "
+                        "Starting playback..."
+                    )
+
+                    first_chunk = False
+
+                # Play this chunk before waiting for the next one
+                if not self._play_wav_bytes(wav_bytes):
+                    break
 
         except requests.RequestException as e:
-            print(f"[TTS] Pocket TTS request failed: {e}")
+
+            print(
+                f"[TTS] Streaming request failed: {e}"
+            )
 
         except Exception as e:
-            print(f"[TTS] Error: {e}")
+
+            print(
+                f"[TTS] Streaming error: {e}"
+            )
 
         finally:
 
             pygame.mixer.music.stop()
-
-            try:
-                pygame.mixer.music.unload()
-            except pygame.error:
-                pass
-
-            if output_file and os.path.exists(output_file):
-                try:
-                    os.remove(output_file)
-                except OSError:
-                    pass
 
             with self._lock:
                 self.is_speaking = False
                 self.is_paused = False
                 self.stop_requested = False
 
+            print("[TTS] Streaming finished.")
+
     def pause(self):
         """
-        Pause Echo's current speech without losing
-        the current position.
+        Pause Echo's current speech.
         """
 
         with self._lock:
@@ -185,7 +244,7 @@ class TTSEngine:
 
     def resume(self):
         """
-        Continue Echo's speech after an attention pause.
+        Resume Echo's speech.
         """
 
         with self._lock:
@@ -204,14 +263,13 @@ class TTSEngine:
 
     def stop(self):
         """
-        Immediately stop currently playing speech.
+        Immediately stop speech.
         """
 
         with self._lock:
             self.stop_requested = True
 
-        if pygame.mixer.music.get_busy():
-            pygame.mixer.music.stop()
+        pygame.mixer.music.stop()
 
     def isSpeaking(self) -> bool:
         """
@@ -223,7 +281,7 @@ class TTSEngine:
 
     def isPaused(self) -> bool:
         """
-        Return True when Echo's speech is paused.
+        Returns True when speech is paused.
         """
 
         with self._lock:

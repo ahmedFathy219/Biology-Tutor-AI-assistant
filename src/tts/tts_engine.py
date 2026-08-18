@@ -1,15 +1,17 @@
-import asyncio
-import edge_tts
 import re
 import pygame
 import tempfile
 import os
 import threading
 
+import numpy as np
+import requests
+
 
 class TTSEngine:
     def __init__(self):
-        self.voice = "en-US-ChristopherNeural"
+        # Normal Pocket TTS server
+        self.tts_url = "http://127.0.0.1:8000/tts"
 
         pygame.mixer.init()
 
@@ -37,24 +39,70 @@ class TTSEngine:
 
         return text.strip()
 
-    async def _speak_async(
-        self,
-        text: str,
-        output_file: str,
-    ):
-        communicate = edge_tts.Communicate(
-            text,
-            self.voice,
-            rate="+8%",
+    def _play_audio(self, audio_bytes):
+        """
+        Save the complete WAV response to a temporary file
+        and play it.
+        """
+
+        temp_file = tempfile.NamedTemporaryFile(
+            suffix=".wav",
+            delete=False
         )
 
-        await communicate.save(output_file)
+        temp_path = temp_file.name
+
+        try:
+            temp_file.write(audio_bytes)
+            temp_file.close()
+
+            pygame.mixer.music.load(temp_path)
+            pygame.mixer.music.play()
+
+            clock = pygame.time.Clock()
+
+            while True:
+
+                with self._lock:
+                    stop_requested = self.stop_requested
+                    is_paused = self.is_paused
+
+                if stop_requested:
+                    pygame.mixer.music.stop()
+                    return False
+
+                if is_paused:
+                    clock.tick(20)
+                    continue
+
+                if not pygame.mixer.music.get_busy():
+                    break
+
+                clock.tick(50)
+
+            return True
+
+        finally:
+
+            pygame.mixer.music.stop()
+
+            try:
+                pygame.mixer.music.unload()
+            except pygame.error:
+                pass
+
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
     def speak(self, text: str):
         """
-        Generate and play speech.
+        Generate the COMPLETE speech response first,
+        then play it.
 
-        This function can be interrupted using stop().
+        No streaming.
+        No chunks.
         """
 
         cleaned_text = self.clean_text(text)
@@ -66,83 +114,62 @@ class TTSEngine:
             self.stop_requested = False
             self.is_speaking = True
 
-        output_file = None
-
         try:
-            # Create temporary MP3 file
-            with tempfile.NamedTemporaryFile(
-                suffix=".mp3",
-                delete=False,
-            ) as temp_file:
 
-                output_file = temp_file.name
-
-            # Generate speech
-            asyncio.run(
-                self._speak_async(
-                    cleaned_text,
-                    output_file,
-                )
+            print(
+                f"[TTS] Generating speech "
+                f"({len(cleaned_text)} characters)..."
             )
 
-            # Check whether stop() was called while
-            # Edge TTS was generating the audio.
-            if self.stop_requested:
-                return
+            # Request the complete audio from the normal
+            # Pocket TTS endpoint.
+            response = requests.post(
+                self.tts_url,
+                data={
+                    "text": cleaned_text,
+                    "voice_url": (
+                        "http://127.0.0.1:8001/"
+                        "attenborough-voice.safetensors"
+                    ),
+                },
+                timeout=300,
+            )
 
-            # Play speech
-            pygame.mixer.music.load(output_file)
-            pygame.mixer.music.play()
+            response.raise_for_status()
 
-            clock = pygame.time.Clock()
+            print(
+                "[TTS] Audio generated. "
+                "Starting playback..."
+            )
 
-            while True:
+            self._play_audio(response.content)
 
-                with self._lock:
-                    stop_requested = self.stop_requested
-                    is_paused = self.is_paused
+        except requests.RequestException as e:
 
-                # Completely stop speech
-                if stop_requested:
-                    pygame.mixer.music.stop()
-                    break
+            print(
+                f"[TTS] Request failed: {e}"
+            )
 
-                # If attention has paused Echo,
-                # remain here without ending speak()
-                if is_paused:
-                    clock.tick(20)
-                    continue
+        except Exception as e:
 
-                # Speech genuinely finished
-                if not pygame.mixer.music.get_busy():
-                    break
-
-                clock.tick(20)
+            print(
+                f"[TTS] TTS error: {e}"
+            )
 
         finally:
 
             pygame.mixer.music.stop()
-
-            try:
-                pygame.mixer.music.unload()
-            except pygame.error:
-                pass
-
-            if output_file and os.path.exists(output_file):
-                try:
-                    os.remove(output_file)
-                except OSError:
-                    pass
 
             with self._lock:
                 self.is_speaking = False
                 self.is_paused = False
                 self.stop_requested = False
 
+            print("[TTS] Speech finished.")
+
     def pause(self):
         """
-        Pause Echo's current speech without losing
-        the current position.
+        Pause Echo's current speech.
         """
 
         with self._lock:
@@ -159,10 +186,9 @@ class TTSEngine:
 
         print("[TTS] Speech paused.")
 
-
     def resume(self):
         """
-        Continue Echo's speech after an attention pause.
+        Resume Echo's speech.
         """
 
         with self._lock:
@@ -179,17 +205,15 @@ class TTSEngine:
 
         print("[TTS] Speech resumed.")
 
-
     def stop(self):
         """
-        Immediately stop currently playing speech.
+        Immediately stop speech.
         """
 
         with self._lock:
             self.stop_requested = True
 
-        if pygame.mixer.music.get_busy():
-            pygame.mixer.music.stop()
+        pygame.mixer.music.stop()
 
     def isSpeaking(self) -> bool:
         """
@@ -201,8 +225,8 @@ class TTSEngine:
 
     def isPaused(self) -> bool:
         """
-        Return True when Echo's speech is paused.
+        Returns True when speech is paused.
         """
-            
+
         with self._lock:
             return self.is_paused

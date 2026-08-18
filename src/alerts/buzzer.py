@@ -84,14 +84,11 @@ class BuzzerController:
 
     def alert(self) -> bool:
         """
-        Start repeating buzzer beeps.
-
-        The buzzer continues beeping on and off
-        until stop() is called.
+        Start repeated beeping until stop() is called.
         """
 
         # --------------------------------------------------
-        # Simulation mode
+        # Laptop / simulation
         # --------------------------------------------------
 
         if self._buzzer is None:
@@ -103,9 +100,14 @@ class BuzzerController:
 
             return True
 
+
+        # --------------------------------------------------
+        # Raspberry Pi
+        # --------------------------------------------------
+
         self._buzzer.beep(
-            on_time=0.70,
-            off_time=0.30,
+            on_time=1.0,
+            off_time=0.5,
             n=None,
             background=True,
         )
@@ -118,17 +120,29 @@ class BuzzerController:
 
     def stop(self) -> None:
         """
-        Stop any currently playing buzzer alert.
+        Stop the repeating buzzer alert.
+
+        On a laptop, there is no physical buzzer,
+        so this safely does nothing.
         """
 
-        if self._buzzer is not None:
+        # --------------------------------------------------
+        # Laptop / simulation mode
+        # --------------------------------------------------
+
+        if self._buzzer is None:
+
             print(
                 "[Buzzer Simulation] "
-                "Repeating distraction alert stopped."
+                "Distraction alert stopped."
             )
 
             return
 
+
+        # --------------------------------------------------
+        # Raspberry Pi hardware mode
+        # --------------------------------------------------
 
         self._buzzer.off()
 
@@ -137,14 +151,29 @@ class BuzzerController:
         )
     def close(self) -> None:
         """
-        Turn off the buzzer and release its GPIO resource.
+        Release the buzzer GPIO resource.
+
+        Safe to call on both laptop and Raspberry Pi.
         """
 
-        if self._buzzer is not None:
-            self._buzzer.off()
-            self._buzzer.close()
+        # Laptop / simulation
+        if self._buzzer is None:
 
-            print("[Buzzer] GPIO resource released.")
+            print(
+                "[Buzzer Simulation] "
+                "Buzzer controller closed."
+            )
+
+            return
+
+
+        # Raspberry Pi
+        self._buzzer.off()
+        self._buzzer.close()
+
+        print(
+            "[Buzzer] GPIO resource released."
+        )
 
 
 def getBuzzerController() -> BuzzerController:

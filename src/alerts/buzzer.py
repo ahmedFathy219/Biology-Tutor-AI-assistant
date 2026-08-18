@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import time
 from typing import Any, Optional
 
 
@@ -39,15 +38,12 @@ class BuzzerController:
         enabled: bool = False,
         pin: int = 17,
         active_high: bool = True,
-        cooldown_seconds: float = 10.0,
     ) -> None:
         self.enabled = enabled
         self.pin = pin
         self.active_high = active_high
-        self.cooldown_seconds = cooldown_seconds
 
         self._buzzer: Optional[Any] = None
-        self._last_alert_time: Optional[float] = None
 
         if not self.enabled:
             print(
@@ -88,39 +84,35 @@ class BuzzerController:
 
     def alert(self) -> bool:
         """
-        Produce three short beeps.
+        Start repeating buzzer beeps.
 
-        Returns True if an alert was started.
-        Returns False if the cooldown is still active.
+        The buzzer continues beeping on and off
+        until stop() is called.
         """
 
-        current_time = time.monotonic()
-
-        if self._last_alert_time is not None:
-            elapsed = current_time - self._last_alert_time
-
-            if elapsed < self.cooldown_seconds:
-                return False
-
-        self._last_alert_time = current_time
+        # --------------------------------------------------
+        # Simulation mode
+        # --------------------------------------------------
 
         if self._buzzer is None:
+
             print(
                 "[Buzzer Simulation] "
-                "BEEP! BEEP! BEEP! Student is distracted."
+                "Repeating distraction alert started."
             )
+
             return True
 
-        # background=True prevents the buzzer pattern from
-        # stopping the camera-processing loop.
         self._buzzer.beep(
             on_time=0.70,
             off_time=0.30,
-            n=3,
+            n=None,
             background=True,
         )
 
-        print("[Buzzer] Distraction alert activated.")
+        print(
+            "[Buzzer] Repeating distraction alert started."
+        )
 
         return True
 
@@ -130,8 +122,19 @@ class BuzzerController:
         """
 
         if self._buzzer is not None:
-            self._buzzer.off()
+            print(
+                "[Buzzer Simulation] "
+                "Repeating distraction alert stopped."
+            )
 
+            return
+
+
+        self._buzzer.off()
+
+        print(
+            "[Buzzer] Distraction alert stopped."
+        )
     def close(self) -> None:
         """
         Turn off the buzzer and release its GPIO resource.
@@ -166,16 +169,8 @@ def getBuzzerController() -> BuzzerController:
         )
     )
 
-    cooldown_seconds = float(
-        os.getenv(
-            "BUZZER_COOLDOWN_SECONDS",
-            "10.0",
-        )
-    )
-
     return BuzzerController(
         enabled=enabled,
         pin=pin,
         active_high=active_high,
-        cooldown_seconds=cooldown_seconds,
     )

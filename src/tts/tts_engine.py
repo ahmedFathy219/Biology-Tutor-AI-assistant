@@ -1,15 +1,23 @@
-import asyncio
-import edge_tts
 import re
 import pygame
 import tempfile
 import os
 import threading
 
+import requests
+
 
 class TTSEngine:
     def __init__(self):
-        self.voice = "en-US-ChristopherNeural"
+        # Pocket TTS server
+        self.tts_url = "http://127.0.0.1:8000/tts"
+
+        # Pre-generated voice profile served locally.
+        # The voice profile is created from attenborough-ref.wav
+        # and saved as attenborough-voice.safetensors.
+        self.voice_url = (
+            "http://127.0.0.1:8001/attenborough-voice.safetensors"
+        )
 
         pygame.mixer.init()
 
@@ -37,18 +45,29 @@ class TTSEngine:
 
         return text.strip()
 
-    async def _speak_async(
-        self,
-        text: str,
-        output_file: str,
-    ):
-        communicate = edge_tts.Communicate(
-            text,
-            self.voice,
-            rate="+8%",
+    def _generate_speech(self, text: str, output_file: str):
+        """
+        Sends text to the running Pocket TTS server using
+        the pre-generated Attenborough voice profile.
+
+        The voice profile is served locally through HTTP,
+        so Echo does not upload the reference WAV file
+        with every TTS request.
+        """
+
+        response = requests.post(
+            self.tts_url,
+            data={
+                "text": text,
+                "voice_url": self.voice_url,
+            },
+            timeout=300,
         )
 
-        await communicate.save(output_file)
+        response.raise_for_status()
+
+        with open(output_file, "wb") as output:
+            output.write(response.content)
 
     def speak(self, text: str):
         """
@@ -69,26 +88,25 @@ class TTSEngine:
         output_file = None
 
         try:
-            # Create temporary MP3 file
+            # Create temporary WAV file
             with tempfile.NamedTemporaryFile(
-                suffix=".mp3",
+                suffix=".wav",
                 delete=False,
             ) as temp_file:
 
                 output_file = temp_file.name
 
-            # Generate speech
-            asyncio.run(
-                self._speak_async(
-                    cleaned_text,
-                    output_file,
-                )
+            # Generate speech using Pocket TTS
+            self._generate_speech(
+                cleaned_text,
+                output_file,
             )
 
             # Check whether stop() was called while
-            # Edge TTS was generating the audio.
-            if self.stop_requested:
-                return
+            # Pocket TTS was generating the audio.
+            with self._lock:
+                if self.stop_requested:
+                    return
 
             # Play speech
             pygame.mixer.music.load(output_file)
@@ -118,6 +136,12 @@ class TTSEngine:
                     break
 
                 clock.tick(20)
+
+        except requests.RequestException as e:
+            print(f"[TTS] Pocket TTS request failed: {e}")
+
+        except Exception as e:
+            print(f"[TTS] Error: {e}")
 
         finally:
 
@@ -159,7 +183,6 @@ class TTSEngine:
 
         print("[TTS] Speech paused.")
 
-
     def resume(self):
         """
         Continue Echo's speech after an attention pause.
@@ -178,7 +201,6 @@ class TTSEngine:
         pygame.mixer.music.unpause()
 
         print("[TTS] Speech resumed.")
-
 
     def stop(self):
         """
@@ -203,6 +225,6 @@ class TTSEngine:
         """
         Return True when Echo's speech is paused.
         """
-            
+
         with self._lock:
             return self.is_paused

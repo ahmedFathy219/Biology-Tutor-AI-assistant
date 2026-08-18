@@ -3,8 +3,6 @@ import pygame
 import tempfile
 import os
 import threading
-import struct
-import wave
 
 import numpy as np
 import requests
@@ -12,8 +10,8 @@ import requests
 
 class TTSEngine:
     def __init__(self):
-        # Our streaming Pocket TTS server
-        self.tts_url = "http://127.0.0.1:8002/tts-stream"
+        # Normal Pocket TTS server
+        self.tts_url = "http://127.0.0.1:8000/tts"
 
         pygame.mixer.init()
 
@@ -41,42 +39,21 @@ class TTSEngine:
 
         return text.strip()
 
-    def _read_exact(self, response, size):
+    def _play_audio(self, audio_bytes):
         """
-        Read exactly `size` bytes from the streaming response.
-        """
-
-        data = bytearray()
-
-        while len(data) < size:
-
-            chunk = response.raw.read(
-                size - len(data)
-            )
-
-            if not chunk:
-                return None
-
-            data.extend(chunk)
-
-        return bytes(data)
-
-    def _play_wav_bytes(self, wav_bytes):
-        """
-        Save one streamed WAV chunk to a temporary file
-        and play it with pygame.
+        Save the complete WAV response to a temporary file
+        and play it.
         """
 
         temp_file = tempfile.NamedTemporaryFile(
             suffix=".wav",
-            delete=False,
+            delete=False
         )
 
         temp_path = temp_file.name
 
         try:
-
-            temp_file.write(wav_bytes)
+            temp_file.write(audio_bytes)
             temp_file.close()
 
             pygame.mixer.music.load(temp_path)
@@ -91,12 +68,10 @@ class TTSEngine:
                     is_paused = self.is_paused
 
                 if stop_requested:
-
                     pygame.mixer.music.stop()
                     return False
 
                 if is_paused:
-
                     clock.tick(20)
                     continue
 
@@ -123,11 +98,11 @@ class TTSEngine:
 
     def speak(self, text: str):
         """
-        Stream speech from Pocket TTS.
+        Generate the COMPLETE speech response first,
+        then play it.
 
-        Playback starts as soon as the first audio chunk
-        is generated instead of waiting for the entire
-        response.
+        No streaming.
+        No chunks.
         """
 
         cleaned_text = self.clean_text(text)
@@ -139,77 +114,46 @@ class TTSEngine:
             self.stop_requested = False
             self.is_speaking = True
 
-        first_chunk = True
-
         try:
 
             print(
-                f"[TTS] Starting streaming generation "
+                f"[TTS] Generating speech "
                 f"({len(cleaned_text)} characters)..."
             )
 
+            # Request the complete audio from the normal
+            # Pocket TTS endpoint.
             response = requests.post(
                 self.tts_url,
                 data={
                     "text": cleaned_text,
+                    "voice_url": (
+                        "http://127.0.0.1:8001/"
+                        "attenborough-voice.safetensors"
+                    ),
                 },
-                stream=True,
                 timeout=300,
             )
 
             response.raise_for_status()
 
-            while True:
+            print(
+                "[TTS] Audio generated. "
+                "Starting playback..."
+            )
 
-                # Read 4-byte chunk size
-                header = self._read_exact(
-                    response,
-                    4,
-                )
-
-                if header is None:
-                    break
-
-                chunk_size = struct.unpack(
-                    "!I",
-                    header,
-                )[0]
-
-                if chunk_size <= 0:
-                    break
-
-                # Read actual WAV chunk
-                wav_bytes = self._read_exact(
-                    response,
-                    chunk_size,
-                )
-
-                if wav_bytes is None:
-                    break
-
-                if first_chunk:
-
-                    print(
-                        "[TTS] First audio chunk received. "
-                        "Starting playback..."
-                    )
-
-                    first_chunk = False
-
-                # Play this chunk before waiting for the next one
-                if not self._play_wav_bytes(wav_bytes):
-                    break
+            self._play_audio(response.content)
 
         except requests.RequestException as e:
 
             print(
-                f"[TTS] Streaming request failed: {e}"
+                f"[TTS] Request failed: {e}"
             )
 
         except Exception as e:
 
             print(
-                f"[TTS] Streaming error: {e}"
+                f"[TTS] TTS error: {e}"
             )
 
         finally:
@@ -221,7 +165,7 @@ class TTSEngine:
                 self.is_paused = False
                 self.stop_requested = False
 
-            print("[TTS] Streaming finished.")
+            print("[TTS] Speech finished.")
 
     def pause(self):
         """

@@ -200,28 +200,54 @@ class AttentionMonitor:
                 # -------------------------------------
                 # State change
                 # -------------------------------------
+            if state != previous_state:
 
-                if state != previous_state:
-                
-                    print(
-                        "[Attention] State: "
-                        f"{state.value}"
-                    )
-                
-                    # ------------------------------------------------
-                    # Buzzer
-                    # ------------------------------------------------
-                
-                    if state == AttentionState.DISTRACTED:
-                
-                        self.buzzer.alert()
-                
-                    elif (
-                        previous_state
-                        == AttentionState.DISTRACTED
-                    ):
-                
-                        self.buzzer.stop()
+                print(
+                    "[Attention] State: "
+                    f"{state.value}"
+                )
+                # ------------------------------------------------
+                # Buzzer attention control
+                # ------------------------------------------------
+
+                inattentive_states = {
+                    AttentionState.DISTRACTED,
+                    AttentionState.NO_FACE,
+                }
+
+
+                is_inattentive = (
+                    state in inattentive_states
+                )
+
+
+                was_inattentive = (
+                    previous_state in inattentive_states
+                )
+
+
+                # ------------------------------------------------
+                # Student just became inattentive
+                # ------------------------------------------------
+
+                if (
+                    is_inattentive
+                    and not was_inattentive
+                ):
+
+                    self.buzzer.alert()
+
+
+                # ------------------------------------------------
+                # Student just became focused again
+                # ------------------------------------------------
+
+                elif (
+                    not is_inattentive
+                    and was_inattentive
+                ):
+
+                    self.buzzer.stop()
                 
                 
                     # ------------------------------------------------

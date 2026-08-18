@@ -19,29 +19,53 @@ from alerts import getBuzzerController
 
 
 def main() -> None:
+
     load_dotenv()
 
-    print("[Buzzer Test] Initializing...")
+    print(
+        "[Buzzer Test] Initializing..."
+    )
+
 
     buzzer = getBuzzerController()
 
+
     try:
-        print("[Buzzer Test] Starting alert.")
 
-        alert_started = buzzer.alert()
+        print(
+            "[Buzzer Test] "
+            "Starting repeating alert."
+        )
 
-        if alert_started:
-            print("[Buzzer Test] Alert successfully triggered.")
-        else:
-            print("[Buzzer Test] Alert blocked by cooldown.")
 
-        # The hardware beep pattern runs in the background,
-        # so wait before closing the GPIO resource.
-        time.sleep(6)
+        buzzer.alert()
+
+
+        # Simulate student being distracted
+        # for 8 seconds.
+        time.sleep(8)
+
+
+        print(
+            "[Buzzer Test] "
+            "Student focused again."
+        )
+
+
+        buzzer.stop()
+
+
+        # Give us time to hear that it stopped.
+        time.sleep(2)
+
 
     finally:
+
         buzzer.close()
-        print("[Buzzer Test] Finished.")
+
+        print(
+            "[Buzzer Test] Finished."
+        )
 
 
 if __name__ == "__main__":

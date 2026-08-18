@@ -1,425 +1,692 @@
 import multiprocessing as mp
-import time
 from queue import Empty
+import tkinter as tk
+import textwrap
 
+
+
+WINDOW_WIDTH = 480
+WINDOW_HEIGHT = 320
 
 SHOW_WAKE_GUIDE = "SHOW_WAKE_GUIDE"
 SHOW_LISTENING = "SHOW_LISTENING"
 SHOW_THINKING = "SHOW_THINKING"
 SHOW_ANSWERING = "SHOW_ANSWERING"
-
+CLOSE_DISPLAY = "CLOSE_DISPLAY"
 SHOW_ATTENTION_WARNING = "SHOW_ATTENTION_WARNING"
 CLEAR_ATTENTION_WARNING = "CLEAR_ATTENTION_WARNING"
 
-CLOSE_DISPLAY = "CLOSE_DISPLAY"
+
+def _drawMicrophone(canvas, centerX, centerY):
+    """
+    Draw a simple microphone icon using shapes.
+
+    We draw it ourselves instead of using an emoji so that
+    the appearance does not depend on the computer's emoji font.
+    """
+
+    # Microphone body
+    canvas.create_rectangle(
+        centerX - 14,
+        centerY - 30,
+        centerX + 14,
+        centerY + 10,
+        outline="#7FDBFF",
+        width=3,
+    )
+
+    # Rounded-looking microphone top
+    canvas.create_arc(
+        centerX - 14,
+        centerY - 38,
+        centerX + 14,
+        centerY - 18,
+        start=0,
+        extent=180,
+        outline="#7FDBFF",
+        width=3,
+        style="arc",
+    )
+
+    # Outer microphone holder
+    canvas.create_arc(
+        centerX - 25,
+        centerY - 5,
+        centerX + 25,
+        centerY + 30,
+        start=180,
+        extent=180,
+        outline="#7FDBFF",
+        width=3,
+        style="arc",
+    )
+
+    # Stand
+    canvas.create_line(
+        centerX,
+        centerY + 28,
+        centerX,
+        centerY + 42,
+        fill="#7FDBFF",
+        width=3,
+    )
+
+    canvas.create_line(
+        centerX - 15,
+        centerY + 42,
+        centerX + 15,
+        centerY + 42,
+        fill="#7FDBFF",
+        width=3,
+    )
 
 
-# ============================================================
-# Physical TFT process
-# ============================================================
+def _paginateText(
+    text,
+    charactersPerLine=48,
+    linesPerPage=8,
+):
+    """
+    Split Echo's full answer into multiple pages
+    that fit on the TFT display.
+    """
+
+    wrappedLines = []
+
+    # ----------------------------------------------------
+    # Process EVERY paragraph in the answer
+    # ----------------------------------------------------
+
+    for paragraph in text.splitlines():
+
+        paragraph = paragraph.strip()
+
+        # Preserve blank lines between paragraphs
+        if not paragraph:
+
+            wrappedLines.append("")
+
+            continue
+
+        # Wrap long paragraphs into TFT-sized lines
+        lines = textwrap.wrap(
+            paragraph,
+            width=charactersPerLine,
+            break_long_words=True,
+            break_on_hyphens=False,
+        )
+
+        wrappedLines.extend(lines)
+
+    # ----------------------------------------------------
+    # Make sure there is something to display
+    # ----------------------------------------------------
+
+    if not wrappedLines:
+
+        wrappedLines = [""]
+
+    # ----------------------------------------------------
+    # Divide all lines into pages
+    # ----------------------------------------------------
+
+    pages = []
+
+    for index in range(
+        0,
+        len(wrappedLines),
+        linesPerPage,
+    ):
+
+        pageLines = wrappedLines[
+            index:index + linesPerPage
+        ]
+
+        pages.append(
+            "\n".join(pageLines)
+        )
+
+    # IMPORTANT:
+    # This must be OUTSIDE both loops.
+    return pages
 
 def _runDisplay(commandQueue):
     """
-    Runs the physical ST7735S TFT display.
+    Runs the laptop TFT simulator.
+
+    This function runs in a separate process so the display
+    will NOT block Echo's main program.
     """
 
-    import board
-    import digitalio
+    root = tk.Tk()
 
-    from PIL import (
-        Image,
-        ImageDraw,
-        ImageFont,
+    root.title("Echo TFT Simulator")
+
+    root.geometry(
+        f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}"
     )
 
-    from adafruit_rgb_display import st7735
-    from adafruit_rgb_display.rgb import DummyPin
+    root.resizable(False, False)
 
+    backgroundColor = "#0B1020"
+    mainTextColor = "#FFFFFF"
+    secondaryTextColor = "#A9B4C7"
+    accentColor = "#7FDBFF"
 
-    print("[Display] Initializing physical TFT...")
-
-    spi = board.SPI()
-
-    cs = digitalio.DigitalInOut(board.D5)
-    dc = digitalio.DigitalInOut(board.D25)
-    reset = digitalio.DigitalInOut(board.D24)
-    backlight = DummyPin()
-
-    # Optional TE pin (V-Sync) if connected to D22
-    try:
-        te = digitalio.DigitalInOut(board.D22)
-        te.direction = digitalio.Direction.INPUT
-    except Exception:
-        te = None
-
-
-    # ========================================================
-    # ST7735S initialization
-    # ========================================================
-
-    display = st7735.ST7735S(
-        spi,
-        dc=dc,
-        cs=cs,
-        bl=backlight,
-        rst=reset,
-        width=160,
-        height=128,
-        x_offset=2,
-        y_offset=1,
-        rotation=0,
-        baudrate=32000000,  # Boost SPI to 32 MHz for sub-10ms transfers
+    canvas = tk.Canvas(
+        root,
+        width=WINDOW_WIDTH,
+        height=WINDOW_HEIGHT,
+        bg=backgroundColor,
+        highlightthickness=0,
     )
 
-    WINDOW_WIDTH = display.width
-    WINDOW_HEIGHT = display.height
+    canvas.pack()
 
-    print(f"[Display] TFT initialized: {WINDOW_WIDTH}x{WINDOW_HEIGHT}")
-
-
-    # ========================================================
-    # Colors
-    # ========================================================
-
-    backgroundColor = (11, 16, 32)
-    mainTextColor = (255, 255, 255)
-    secondaryTextColor = (169, 180, 199)
-    accentColor = (127, 219, 255)
-    warningColor = (255, 204, 0)
-
-
-    # ========================================================
-    # Fonts
-    # ========================================================
-
-    def loadFont(size, bold=False):
-        try:
-            path = (
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-                if bold
-                else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-            )
-            return ImageFont.truetype(path, size)
-        except Exception:
-            return ImageFont.load_default()
-
-
-    titleFont = loadFont(16, bold=True)
-    headingFont = loadFont(13, bold=True)
-    bodyFont = loadFont(10)
-    smallFont = loadFont(8)
-
-
-    # ========================================================
-    # Display state
-    # ========================================================
-
+    pulseCircle = None
+    pulseSize = 35
+    pulseDirection = 1
+    answerPageTimer = None
     attentionOverride = False
     baseCommand = SHOW_WAKE_GUIDE
+    microphoneX = WINDOW_WIDTH // 2
+    microphoneY = 145
 
-    pulseSize = 16
-    pulseDirection = 1
-    lastPulseUpdate = time.monotonic()
-
-
-    # ========================================================
-    # Drawing helpers
-    # ========================================================
-
-    def createFrame():
-        image = Image.new("RGB", (WINDOW_WIDTH, WINDOW_HEIGHT), backgroundColor)
-        draw = ImageDraw.Draw(image)
-        return image, draw
-
-
-    def sendFrame(image, bounding_box=None):
+    def stopAnswerPaging():
         """
-        Sends the frame or cropped sub-region (bounding box) to hardware.
+        Stop any automatic page switching from
+        a previous Answering screen.
         """
-        if te is not None:
-            timeout = time.monotonic() + 0.03
-            while not te.value and time.monotonic() < timeout:
-                time.sleep(0.0005)
 
-        if bounding_box:
-            # Crop image to just the dirty region to drastically reduce SPI payload
-            cropped = image.crop(bounding_box)
-            x0, y0, x1, y1 = bounding_box
-            display.image(cropped, rotation=0, x=x0, y=y0)
-        else:
-            display.image(image, rotation=0)
+        nonlocal answerPageTimer
 
+        if answerPageTimer is not None:
 
-    def centerText(draw, y, text, font, fill):
-        box = draw.textbbox((0, 0), text, font=font)
-        textWidth = box[2] - box[0]
-        x = (WINDOW_WIDTH - textWidth) // 2
-        draw.text((x, y), text, font=font, fill=fill)
+            try:
+
+                root.after_cancel(
+                    answerPageTimer
+                )
+
+            except tk.TclError:
+
+                pass
+
+            answerPageTimer = None
 
 
-    def drawMicrophone(draw, centerX, centerY):
-        draw.rounded_rectangle(
-            (centerX - 7, centerY - 14, centerX + 7, centerY + 8),
-            radius=5,
-            outline=accentColor,
-            width=2,
-        )
-        draw.arc(
-            (centerX - 12, centerY - 5, centerX + 12, centerY + 14),
-            start=0,
-            end=180,
-            fill=accentColor,
-            width=2,
-        )
-        draw.line(
-            (centerX, centerY + 13, centerX, centerY + 20),
-            fill=accentColor,
-            width=2,
-        )
-        draw.line(
-            (centerX - 6, centerY + 20, centerX + 6, centerY + 20),
-            fill=accentColor,
-            width=2,
+    def showWakeGuide():
+        """
+        Display the screen telling the student to say:
+        Hey Echo
+        """
+
+        nonlocal pulseCircle
+        
+        stopAnswerPaging()
+
+        canvas.delete("all")
+
+        # Echo title
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            45,
+            text="ECHO",
+            fill=mainTextColor,
+            font=("Arial", 28, "bold"),
         )
 
-
-    # ========================================================
-    # Screen Renderers
-    # ========================================================
-
-    def showWakeGuide(is_animating=False):
-        image, draw = createFrame()
-
-        centerText(draw, 8, "ECHO", titleFont, mainTextColor)
-
-        microphoneX = 64
-        microphoneY = 65
-
-        # Dynamic pulse radius
-        draw.ellipse(
-            (
-                microphoneX - pulseSize,
-                microphoneY - pulseSize,
-                microphoneX + pulseSize,
-                microphoneY + pulseSize,
-            ),
+        # Pulsing circle behind microphone
+        pulseCircle = canvas.create_oval(
+            microphoneX - 35,
+            microphoneY - 35,
+            microphoneX + 35,
+            microphoneY + 35,
             outline=accentColor,
             width=2,
         )
 
-        drawMicrophone(draw, microphoneX, microphoneY)
+        # Microphone icon
+        _drawMicrophone(
+            canvas,
+            microphoneX,
+            microphoneY,
+        )
 
-        centerText(draw, 105, 'Say "Hey Echo"', headingFont, mainTextColor)
-        centerText(draw, 132, "Waiting for you...", smallFont, secondaryTextColor)
+        # Main instruction
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            225,
+            text='Say "Hey Echo"',
+            fill=mainTextColor,
+            font=("Arial", 20, "bold"),
+        )
 
-        if is_animating:
-            # Only update dirty region around mic (48x48 box instead of 160x128)
-            dirty_box = (
-                microphoneX - 24,
-                microphoneY - 24,
-                microphoneX + 24,
-                microphoneY + 24,
-            )
-            sendFrame(image, bounding_box=dirty_box)
-        else:
-            sendFrame(image)
+        # Secondary instruction
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            265,
+            text="Waiting for you...",
+            fill=secondaryTextColor,
+            font=("Arial", 12),
+        )
+    def showListening():
+        nonlocal pulseCircle
+        nonlocal pulseSize
+        nonlocal pulseDirection
+        stopAnswerPaging()
 
+        canvas.delete("all")
 
-    def showListening(is_animating=False):
-        image, draw = createFrame()
+        pulseSize = 35
+        pulseDirection = 1
 
-        centerText(draw, 8, "ECHO", titleFont, mainTextColor)
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            45,
+            text="ECHO",
+            fill=mainTextColor,
+            font=("Arial", 28, "bold"),
+        )
 
-        microphoneX = 64
-        microphoneY = 65
-
-        draw.ellipse(
-            (
-                microphoneX - pulseSize,
-                microphoneY - pulseSize,
-                microphoneX + pulseSize,
-                microphoneY + pulseSize,
-            ),
+        pulseCircle = canvas.create_oval(
+            microphoneX - pulseSize,
+            microphoneY - pulseSize,
+            microphoneX + pulseSize,
+            microphoneY + pulseSize,
             outline=accentColor,
             width=2,
         )
 
-        drawMicrophone(draw, microphoneX, microphoneY)
+        _drawMicrophone(
+            canvas,
+            microphoneX,
+            microphoneY,
+        )   
 
-        centerText(draw, 105, "Listening...", headingFont, mainTextColor)
-        centerText(draw, 132, "Ask me a question", smallFont, secondaryTextColor)
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            225,
+            text="Listening...",
+            fill=mainTextColor,
+            font=("Arial", 20, "bold"),
+        )
 
-        if is_animating:
-            dirty_box = (
-                microphoneX - 24,
-                microphoneY - 24,
-                microphoneX + 24,
-                microphoneY + 24,
-            )
-            sendFrame(image, bounding_box=dirty_box)
-        else:
-            sendFrame(image)
-
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            265,
+            text="Ask me a question.",
+            fill=secondaryTextColor,
+            font=("Arial", 12),
+        )
 
     def showThinking():
-        image, draw = createFrame()
+        nonlocal pulseCircle
+        stopAnswerPaging()
+        pulseCircle = None
 
-        centerText(draw, 10, "ECHO", titleFont, mainTextColor)
+        canvas.delete("all")
 
-        centerX = 64
-        for offset in (-18, 0, 18):
-            x = centerX + offset
-            draw.ellipse((x - 4, 58, x + 4, 66), fill=accentColor)
-
-        centerText(draw, 92, "Thinking...", headingFont, mainTextColor)
-        centerText(draw, 122, "Finding the answer", smallFont, secondaryTextColor)
-
-        sendFrame(image)
-
-
-    def showAnswering(answerText, pageNumber, totalPages):
-        image, draw = createFrame()
-
-        centerText(draw, 3, "ECHO", headingFont, mainTextColor)
-        centerText(draw, 20, "Answering...", bodyFont, accentColor)
-        draw.line((5, 35, 123, 35), fill=secondaryTextColor)
-
-        draw.multiline_text(
-            (5, 42),
-            answerText,
-            font=smallFont,
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            45,
+            text="ECHO",
             fill=mainTextColor,
-            spacing=2,
+            font=("Arial", 28, "bold"),
         )
 
+        canvas.create_oval(
+            205,
+            115,
+            225,
+            135,
+            fill=accentColor,
+            outline=accentColor,
+        )
+
+        canvas.create_oval(
+            230,
+            115,
+            250,
+            135,
+            fill=accentColor,
+            outline=accentColor,
+        )
+
+        canvas.create_oval(
+            255,
+            115,
+            275,
+            135,
+            fill=accentColor,
+            outline=accentColor,
+        )  
+
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            195,
+            text="Thinking...",
+            fill=mainTextColor,
+            font=("Arial", 20, "bold"),
+        )
+
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            235,
+            text="Finding the best answer...",
+            fill=secondaryTextColor,
+            font=("Arial", 12),
+        )
+
+    def showAnswering(
+        answerText,
+        pageNumber,
+        totalPages,
+    ):
+        """
+        Display one synchronized page of Echo's answer.
+        """
+
+        nonlocal pulseCircle
+
+        pulseCircle = None
+
+        canvas.delete("all")
+
+        # ----------------------------------------------------
+        # Header
+        # ----------------------------------------------------
+
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            30,
+            text="ECHO",
+            fill=mainTextColor,
+            font=("Arial", 22, "bold"),
+        )
+
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            65,
+            text="Answering...",
+            fill=accentColor,
+            font=("Arial", 16, "bold"),
+        )
+
+        canvas.create_line(
+            30,
+            90,
+            WINDOW_WIDTH - 30,
+            90,
+            fill=secondaryTextColor,
+        )
+
+        # ----------------------------------------------------
+        # Current page
+        # ----------------------------------------------------
+
+        canvas.create_text(
+            30,
+            110,
+            text=answerText,
+            fill=mainTextColor,
+            font=("Arial", 13),
+            width=WINDOW_WIDTH - 60,
+            anchor="nw",
+            justify="left",
+        )
+
+        # ----------------------------------------------------
+        # Page number
+        # ----------------------------------------------------
+
         if totalPages > 1:
-            pageText = f"{pageNumber}/{totalPages}"
-            draw.text((100, 147), pageText, font=smallFont, fill=secondaryTextColor)
 
-        sendFrame(image)
-
+            canvas.create_text(
+                WINDOW_WIDTH - 30,
+                WINDOW_HEIGHT - 20,
+                text=f"{pageNumber}/{totalPages}",
+                fill=secondaryTextColor,
+                font=("Arial", 10),
+                anchor="e",
+            )
 
     def showAttentionWarningScreen():
-        image, draw = createFrame()
 
-        centerText(draw, 15, "!", titleFont, warningColor)
-        centerText(draw, 52, "PAY ATTENTION", headingFont, warningColor)
-        centerText(draw, 88, "Echo is paused", bodyFont, mainTextColor)
-        centerText(draw, 118, "Look back when ready", smallFont, secondaryTextColor)
+        nonlocal pulseCircle
 
-        sendFrame(image)
+        pulseCircle = None
+
+        canvas.delete("all")
+
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            70,
+            text="!",
+            fill=accentColor,
+            font=("Arial", 48, "bold"),
+        )
+
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            155,
+            text="Please Pay Attention",
+            fill=mainTextColor,
+            font=("Arial", 22, "bold"),
+        )
+
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            205,
+            text="Echo is paused",
+            fill=secondaryTextColor,
+            font=("Arial", 14),
+        )
+
+        canvas.create_text(
+            WINDOW_WIDTH // 2,
+            245,
+            text="We'll continue when you're ready",
+            fill=secondaryTextColor,
+            font=("Arial", 12),
+        )
 
 
-    # ========================================================
-    # Render dispatcher
-    # ========================================================
 
-    def renderBaseCommand(command, is_animating=False):
-        commandType = command[0] if isinstance(command, tuple) else command
+    def animatePulse():
+        """
+        Makes the circle around the microphone slowly
+        expand and shrink.
+        """
+
+        nonlocal pulseSize
+        nonlocal pulseDirection
+
+        if pulseCircle is not None:
+
+            pulseSize += pulseDirection
+
+            if pulseSize >= 43:
+                pulseDirection = -1
+
+            elif pulseSize <= 35:
+                pulseDirection = 1
+
+            canvas.coords(
+                pulseCircle,
+                microphoneX - pulseSize,
+                microphoneY - pulseSize,
+                microphoneX + pulseSize,
+                microphoneY + pulseSize,
+            )
+
+        root.after(
+            45,
+            animatePulse,
+        )
+
+    def renderBaseCommand(command):
+        """
+        Render one of Echo's normal screens.
+        """
+
+        if isinstance(command, tuple):
+            commandType = command[0]
+        else:
+            commandType = command
+
 
         if commandType == SHOW_WAKE_GUIDE:
-            showWakeGuide(is_animating=is_animating)
+
+            showWakeGuide()
+
+
         elif commandType == SHOW_LISTENING:
-            showListening(is_animating=is_animating)
+
+            showListening()
+
+
         elif commandType == SHOW_THINKING:
+
             showThinking()
+
+
         elif commandType == SHOW_ANSWERING:
-            showAnswering(command[1], command[2], command[3])
+
+            answerText = command[1]
+            pageNumber = command[2]
+            totalPages = command[3]
+
+            showAnswering(
+                answerText,
+                pageNumber,
+                totalPages,
+            )
 
 
-    # Render initial screen
-    renderBaseCommand(baseCommand, is_animating=False)
+    def checkCommands():
 
-    running = True
+        nonlocal attentionOverride
+        nonlocal baseCommand
 
-
-    # ========================================================
-    # Main Display Loop
-    # ========================================================
-
-    try:
-        while running:
-            try:
-                while True:
-                    command = commandQueue.get_nowait()
-                    commandType = command[0] if isinstance(command, tuple) else command
-
-                    if commandType == SHOW_ATTENTION_WARNING:
-                        attentionOverride = True
-                        showAttentionWarningScreen()
-
-                    elif commandType == CLEAR_ATTENTION_WARNING:
-                        attentionOverride = False
-                        renderBaseCommand(baseCommand, is_animating=False)
-
-                    elif commandType == CLOSE_DISPLAY:
-                        running = False
-                        break
-
-                    else:
-                        baseCommand = command
-                        if not attentionOverride:
-                            renderBaseCommand(baseCommand, is_animating=False)
-
-            except Empty:
-                pass
-
-
-            # ------------------------------------------------
-            # Animation Loop (Partial Dirty-Box Updates)
-            # ------------------------------------------------
-
-            now = time.monotonic()
-
-            if not attentionOverride and (now - lastPulseUpdate >= 0.10):
-                baseType = baseCommand[0] if isinstance(baseCommand, tuple) else baseCommand
-
-                if baseType in {SHOW_WAKE_GUIDE, SHOW_LISTENING}:
-                    pulseSize += pulseDirection
-
-                    if pulseSize >= 21:
-                        pulseDirection = -1
-                    elif pulseSize <= 16:
-                        pulseDirection = 1
-
-                    # Trigger partial update (sends only 48x48 pixel area)
-                    renderBaseCommand(baseCommand, is_animating=True)
-
-                lastPulseUpdate = now
-
-            time.sleep(0.01)
-
-    finally:
-        print("[Display] Shutting down TFT.")
         try:
-            blank = Image.new("RGB", (WINDOW_WIDTH, WINDOW_HEIGHT), backgroundColor)
-            display.image(blank)
-        except Exception:
+
+            while True:
+
+                command = commandQueue.get_nowait()
+
+                if isinstance(command, tuple):
+                    commandType = command[0]
+                else:
+                    commandType = command
+
+
+                # ----------------------------------------
+                # Student became distracted
+                # ----------------------------------------
+
+                if commandType == SHOW_ATTENTION_WARNING:
+
+                    attentionOverride = True
+
+                    showAttentionWarningScreen()
+
+
+                # ----------------------------------------
+                # Student is attentive again
+                # ----------------------------------------
+
+                elif commandType == CLEAR_ATTENTION_WARNING:
+
+                    attentionOverride = False
+
+                    # Restore whatever Echo was
+                    # displaying before the warning.
+                    renderBaseCommand(
+                        baseCommand
+                    )
+
+
+                # ----------------------------------------
+                # Close display
+                # ----------------------------------------
+
+                elif commandType == CLOSE_DISPLAY:
+
+                    root.destroy()
+                    return
+
+
+                # ----------------------------------------
+                # Normal Echo screen
+                # ----------------------------------------
+
+                else:
+
+                    # Remember the most recent normal screen.
+                    baseCommand = command
+
+                    # Only draw it if the attention warning
+                    # is not currently covering the TFT.
+                    if not attentionOverride:
+
+                        renderBaseCommand(
+                            baseCommand
+                        )
+
+
+        except Empty:
+
             pass
 
-        for pin in (cs, dc, reset):
-            try:
-                pin.deinit()
-            except Exception:
-                pass
+        root.after(
+            50,
+            checkCommands,
+        )
 
 
-# ============================================================
-# Echo Display Controller
-# ============================================================
+    # Show the wake guide immediately
+    showWakeGuide()
+
+    # Start animation
+    animatePulse()
+
+    # Start checking for commands
+    checkCommands()
+
+    # ESC can close the simulator
+    root.bind(
+        "<Escape>",
+        lambda event: root.destroy(),
+    )
+
+    root.mainloop()
+
 
 class TftDisplay:
     """
-    Controller used by Echo to communicate with the physical TFT process.
+    Controller used by Echo to communicate with
+    the laptop TFT simulator.
     """
 
     def __init__(self):
+
         self.context = mp.get_context("spawn")
+
         self.commandQueue = self.context.Queue()
+
         self.displayProcess = None
 
+
     def start(self):
-        if self.displayProcess is not None and self.displayProcess.is_alive():
+        """
+        Start the display window.
+        """
+
+        if (
+            self.displayProcess is not None
+            and self.displayProcess.is_alive()
+        ):
             return
 
         self.displayProcess = self.context.Process(
@@ -427,34 +694,92 @@ class TftDisplay:
             args=(self.commandQueue,),
             daemon=True,
         )
+
         self.displayProcess.start()
 
+
     def showWakeGuide(self):
-        self.commandQueue.put(SHOW_WAKE_GUIDE)
+        """
+        Tell the display to show the:
+        Say "Hey Echo"
+        screen.
+        """
+
+        self.commandQueue.put(
+            SHOW_WAKE_GUIDE
+        )
 
     def showListening(self):
-        self.commandQueue.put(SHOW_LISTENING)
+        """
+        Tell the display to show the:
+        Listening...
+        screen.
+        """
+
+        self.commandQueue.put(
+            SHOW_LISTENING
+        )
 
     def showThinking(self):
-        self.commandQueue.put(SHOW_THINKING)
+        """
+        Tell the display to show the:
+        Thinking...
+        screen.
+        """
 
-    def showAnswering(self, answerText, pageNumber=1, totalPages=1):
-        self.commandQueue.put((SHOW_ANSWERING, str(answerText), pageNumber, totalPages))
+        self.commandQueue.put(
+            SHOW_THINKING
+        )
 
+    def showAnswering(
+        self,
+        answerText,
+        pageNumber=1,
+        totalPages=1,
+    ):
+        self.commandQueue.put(
+            (
+                SHOW_ANSWERING,
+                str(answerText),
+                pageNumber,
+                totalPages,
+            )
+        )
     def showAttentionWarning(self):
-        self.commandQueue.put(SHOW_ATTENTION_WARNING)
+
+        self.commandQueue.put(
+            SHOW_ATTENTION_WARNING
+        )
+
 
     def clearAttentionWarning(self):
-        self.commandQueue.put(CLEAR_ATTENTION_WARNING)
+
+        self.commandQueue.put(
+            CLEAR_ATTENTION_WARNING
+        )
+    
+
 
     def close(self):
+        """
+        Close the display safely.
+        """
+
         if self.displayProcess is None:
             return
 
         if self.displayProcess.is_alive():
-            self.commandQueue.put(CLOSE_DISPLAY)
-            self.displayProcess.join(timeout=2)
+
+            self.commandQueue.put(
+                CLOSE_DISPLAY
+            )
+
+            self.displayProcess.join(
+                timeout=1
+            )
 
         if self.displayProcess.is_alive():
+
             self.displayProcess.terminate()
+
             self.displayProcess.join()

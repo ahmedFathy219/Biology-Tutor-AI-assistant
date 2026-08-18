@@ -745,6 +745,8 @@ def main() -> None:
                     "Returning to wake-word mode."
                 )
 
+                attention_monitor.stop()
+
                 wake_word_detector.start()
                 display.showWakeGuide()
 
@@ -1076,6 +1078,8 @@ def main() -> None:
 
             if not should_stop_application:
 
+                attention_monitor.stop()
+
                 wake_word_detector.start()
                 display.showWakeGuide()
 
@@ -1087,14 +1091,25 @@ def main() -> None:
 
     finally:
 
-        # Always release microphone.
         try:
+            # Permanently close camera + buzzer resources.
+            attention_monitor.close()
 
+        except Exception as error:
+            print(
+                f"[Attention] Shutdown error: {error}"
+            )
+
+        try:
             wake_word_detector.stop()
+
+        except Exception:
+            pass
+
+        try:
             display.close()
 
         except Exception:
-
             pass
 
 

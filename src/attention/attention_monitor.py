@@ -200,54 +200,52 @@ class AttentionMonitor:
                 # -------------------------------------
                 # State change
                 # -------------------------------------
-            if state != previous_state:
 
-                print(
-                    "[Attention] State: "
-                    f"{state.value}"
-                )
-                # ------------------------------------------------
-                # Buzzer attention control
-                # ------------------------------------------------
+                if state != previous_state:
+                
+                    print(
+                        "[Attention] State: "
+                        f"{state.value}"
+                    )
+                
+                    # ------------------------------------------------
+                    # Buzzer
+                    # ------------------------------------------------
+                
+                    # ------------------------------------------------
+                    # Buzzer
+                    # ------------------------------------------------
 
-                inattentive_states = {
-                    AttentionState.DISTRACTED,
-                    AttentionState.NO_FACE,
-                }
+                    inattentive_states = {
+                        AttentionState.DISTRACTED,
+                        AttentionState.NO_FACE,
+                    }
 
+                    is_inattentive = (
+                        state in inattentive_states
+                    )
 
-                is_inattentive = (
-                    state in inattentive_states
-                )
-
-
-                was_inattentive = (
-                    previous_state in inattentive_states
-                )
-
-
-                # ------------------------------------------------
-                # Student just became inattentive
-                # ------------------------------------------------
-
-                if (
-                    is_inattentive
-                    and not was_inattentive
-                ):
-
-                    self.buzzer.alert()
+                    was_inattentive = (
+                        previous_state in inattentive_states
+                    )
 
 
-                # ------------------------------------------------
-                # Student just became focused again
-                # ------------------------------------------------
+                    # Student JUST became inattentive.
+                    if (
+                        is_inattentive
+                        and not was_inattentive
+                    ):
 
-                elif (
-                    not is_inattentive
-                    and was_inattentive
-                ):
+                        self.buzzer.alert()
 
-                    self.buzzer.stop()
+
+                    # Student JUST became focused again.
+                    elif (
+                        not is_inattentive
+                        and was_inattentive
+                    ):
+
+                        self.buzzer.stop()
                 
                 
                     # ------------------------------------------------
@@ -407,11 +405,27 @@ class AttentionMonitor:
             )
 
         self.buzzer.stop()
-        self.buzzer.close()
 
         print(
             "[Attention] "
             "Attention monitor stopped."
+        )
+
+    def close(self) -> None:
+        """
+        Permanently close the attention monitor
+        and release buzzer hardware.
+
+        Only call this when Echo itself is exiting.
+        """
+
+        self.stop()
+
+        self.buzzer.close()
+
+        print(
+            "[Attention] "
+            "Attention monitor closed."
         )
 
 

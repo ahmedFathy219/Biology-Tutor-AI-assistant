@@ -16,7 +16,7 @@ unstructured
 pymupdf
 pytesseract
 pillow
-mediapipe==0.10.15
+mediapipe==0.10.15; sys_platform == "linux"
 numpy==1.26.4
 opencv-python==4.10.0.84
 # Raspberry Pi GPIO dependencies — skipped automatically on Windows

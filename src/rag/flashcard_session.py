@@ -7,7 +7,7 @@ import uuid
 import os
 import json
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
+from langchain_ollama import ChatOllama
 from pydantic import BaseModel, Field
 from utils import load_available_topics
 AVAILABLE_TOPICS = load_available_topics()
@@ -44,12 +44,21 @@ class FlashcardSession:
     }
 
     def __init__(self, llm, vectorstore, weakness_tracker, max_pool_size=5):
-        self.llm = llm
         self.vectorstore = vectorstore
         self.tracker = weakness_tracker
         self.pool = []                  # heapq of (due_timestamp, card_dict)
         self._lock = threading.Lock()
         #restore from disk if this is not the first session
+
+        self.llm = ChatOllama(
+            model=self.llm.model,
+            temperature=0.0,
+            base_url=self.llm.base_url,
+            num_predict=150,
+            num_ctx=2048,
+            format="json"
+        ).with_structured_output(FlashcardPair)
+
         self._load_pool()
 
     # helper for loading cards from disk
@@ -136,6 +145,9 @@ Output a JSON object with exactly two keys: "question" and "answer".
             "text": chunk_text,
             "format_instructions": parser.get_format_instructions()
         })
+
+        
+        result = result.model_dump() if isinstance(result, FlashcardPair) else result
         return {
             "question": result["question"],
             "answer": result["answer"],

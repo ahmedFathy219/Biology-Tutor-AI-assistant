@@ -442,7 +442,7 @@ def getAttentionMonitor() -> AttentionMonitor:
 
     show_window = _readBool(
         "ATTENTION_SHOW_WINDOW",
-        True,
+        False,
     )
 
     camera_index = int(

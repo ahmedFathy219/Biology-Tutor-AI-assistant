@@ -3,19 +3,44 @@ import threading
 import random
 import queue
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
-from pydantic import BaseModel, Field
+from langchain_core.output_parsers import StrOutputParser
+from langchain_ollama import ChatOllama
+from pydantic import BaseModel, Field, field_validator
 from collections import deque
 from .weakness_tracker import WeaknessTracker
 from utils import load_available_topics
-
 ALLOWED_TOPICS = load_available_topics()
 
 # LLM output format for evaluation
 class EvaluationResult(BaseModel):
-    correct: bool = Field(description="True if the student's answer is essentially correct.")
+    correct: bool = Field(description="True if the student's answer is essentially correct, False if the students's answer is incorrect")
     feedback: str = Field(description="Friendly, spoken feedback, max 2 sentences.")
-    confidence: float = Field(description="Confidence score from 0.0 to 1.0 that the answer is correct", ge=0.0, le=1.0)
+    confidence: float = Field(description="Confidence score from 0.0 to 1.0 evaluation is accurate", ge=0.0, le=1.0)
+
+    @field_validator("correct", mode="before")
+    @classmethod
+    def normalize_correct(cls, value):
+        #already a real bool
+        if isinstance(value, bool):
+            return value
+
+        # JSON numbers: 0 or 1
+        if isinstance(value, (int, float)) and value in (0, 1):
+            return bool(value)
+        # Strings the LLM can produce
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+
+            true_values = {"true", "1", "yes", "y", "correct", "right", "t"}
+            false_values = {"false", "0", "no", "n", "incorrect", "wrong", "f"}
+
+            if normalized in true_values:
+                return True
+
+            if normalized in false_values:
+                return False
+
+            raise ValueError(f"Invalid value for correct: {value!r}")                        
 
 
 class QuizSession:
@@ -31,9 +56,16 @@ class QuizSession:
         self._lock = threading.Lock()
         self._gen_thread = None
 
-        # Pre‑fill the pool synchronously
-        
-
+        #same model as llm mut with 0 temperature
+        self.eval_llm = ChatOllama(
+            model=self.llm.model,
+            temperature=0.0,
+            base_url=self.llm.base_url,
+            num_predict=150,
+            num_ctx=2048,
+            format="json"
+        ).with_structured_output(EvaluationResult)
+    
         # start background refill thread
         self._fill_pool()
     # ------------------------------------------------------------
@@ -150,43 +182,56 @@ class QuizSession:
         return self.pool.get()
 
     def evaluate(self, question: str, chunk: str, user_answer: str) -> dict:
-        # Retrieve 2 relevant chunks (no filter needed)
         
         # use the same chunk that was used in question generation
         context = chunk
+        SYSTEM_PROMPT = """You are an expert biology tutor evaluating a student's spoken answer.
 
-        parser = JsonOutputParser(pydantic_object=EvaluationResult)    
-            
+Use the provided context to decide whether the answer is essentially correct.
+Spoken answers may be short, informal, or use different words.
+Accept answers that convey the core concept even if phrasing differs.
+
+Rules:
+- If the answer is correct or partially correct, set correct=True and explain any missing details in the feedback.
+- If the answer is incorrect, off‑topic, or empty, set correct=False and briefly state the correct information.
+- Base your decision only on the context; do not use outside knowledge.
+- Feedback must be friendly, spoken‑style, and at most 2 sentences.
+- Confidence is a number from 0.0 to 1.0 indicating how sure you are of your evaluation.
+
+Output only the structured fields.
+"""
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a biology tutor. Evaluate the student's spoken answer. if the student answers partailly or uses keywords that are in the answer, assume correct and explain the missing part in the feedback in a friendly way.
-Question: {question}
-Relevant biology content: {context}
-Student's answer: {user_answer}
-
-{format_instructions}"""),
-            ("human", "Evaluation:")
+            ("system", SYSTEM_PROMPT),
+            ("human", "Question: {question}\nContext: {context}\nStudent's answer: {user_answer}")
         ])
-        # Use the same LLM with low temperature for evaluation
-        from langchain_ollama import ChatOllama
-        eval_llm = ChatOllama(
-            model=self.llm.model,
-            temperature=0.0,
-            base_url=self.llm.base_url,
-            num_predict=150,
-            num_ctx=2048,
-            format="json"
-        )
-        chain = prompt | eval_llm | parser
-        feedback = chain.invoke({
+        chain = prompt | self.eval_llm 
+        result = chain.invoke({
             "question": question,
             "context": context,
-            "user_answer": user_answer,
-            "format_instructions": parser.get_format_instructions()
+            "user_answer": user_answer
         })
-        return feedback
+
+        return result.model_dump() if isinstance(result, EvaluationResult) else result
 
     def record_result(self, topic: str, correct: bool):
         self.tracker.update(topic, correct)
+
+    def explain_answer(self, question: str, chunk: str) -> str:
+        """Generate a short, spoken explanation for the correct answer."""
+        prompt = ChatPromptTemplate.from_messages([
+            (
+                "system",
+                "You are a biology tutor. The student didn't know the answer. "
+                "Given the question and relevant biology content, give a short, "
+                "friendly spoken explanation of the correct answer. Max 2 sentences."
+            ),
+            (
+                "human",
+                "Question: {question}\nRelevant content: {context}"
+            )
+        ])
+        chain = prompt | self.llm | StrOutputParser()
+        return chain.invoke({"question": question, "context": chunk}).strip()
 
     def stop(self):
         self._stop_event.set()

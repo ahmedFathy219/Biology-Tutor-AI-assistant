@@ -30,7 +30,7 @@ class FasterWhisperSTT:
         language: Optional[str] = "en",
         device_index: Optional[int] = None,
         speech_threshold: float = 400.0,
-        silence_seconds: float = 1.2,
+        silence_seconds: float = 1.5,
         wait_for_speech_seconds: float = 5.0,
         max_recording_seconds: float = 15.0,
         beam_size: int = 3,
@@ -148,9 +148,11 @@ class FasterWhisperSTT:
 
             # Keep a small amount of audio from immediately before
             # speech is detected. This avoids cutting off the first word.
+
+            pre_roll_seconds = 1
             pre_roll_chunks = max(
-                1,
-                int(0.5 * self.input_rate / self.CHUNK),
+                1.0,
+                int(pre_roll_seconds * self.input_rate / self.CHUNK),
             )
             pre_roll: deque[bytes] = deque(
                 maxlen=pre_roll_chunks

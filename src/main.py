@@ -535,6 +535,19 @@ def quiz_loop(
                 resp = speech_to_text.listenAndTranscribe()
                 resp = normalizeText(resp)
 
+            new_topic = extract_topic(resp)
+            
+            if new_topic:
+                quiz.set_topic(new_topic)
+
+                display.showQuizTime(new_topic)
+
+                topic_change_message = f"Okay, switching the quiz to {new_topic}."
+
+                tts.speak(topic_change_message)
+                question_number = 1
+                continue
+
             if resp in NO_MORE_QUESTIONS_RESPONSES:
                 end_message = "Great effort! Returning to study mode."
 

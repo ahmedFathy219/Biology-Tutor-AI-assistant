@@ -51,9 +51,9 @@ class FlashcardSession:
         #restore from disk if this is not the first session
 
         self.llm = ChatOllama(
-            model=self.llm.model,
+            model=llm.model,
             temperature=0.0,
-            base_url=self.llm.base_url,
+            base_url=llm.base_url,
             num_predict=150,
             num_ctx=2048,
             format="json"
@@ -132,21 +132,18 @@ class FlashcardSession:
         chunk_text = random.choice(docs).page_content.strip()
 
         # Generate Q&A
-        parser = JsonOutputParser(pydantic_object=FlashcardPair)
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a biology flashcard creator.
 Based on the text below, create ONE clear, concise flashcard.
-Output a JSON object with exactly two keys: "question" and "answer".
-{format_instructions}"""),
+Output a JSON object with exactly two keys: "question" and "answer"."""),
             ("human", "{text}")
         ])
-        chain = prompt | self.llm | parser
+        chain = prompt | self.llm 
         result = chain.invoke({
             "text": chunk_text,
-            "format_instructions": parser.get_format_instructions()
         })
 
-        
+
         result = result.model_dump() if isinstance(result, FlashcardPair) else result
         return {
             "question": result["question"],

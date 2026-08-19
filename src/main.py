@@ -11,7 +11,7 @@ from tts import getTTSEngine
 from wake_word import getWakeWordDetector
 from attention import getAttentionMonitor,AttentionState
 from utils import load_available_topics
-from display import TftDisplay
+from display import create_display
 # ============================================================
 # Commands
 # ============================================================
@@ -972,7 +972,7 @@ def main() -> None:
         "[Main] Initializing Study Buddy..."
     )
 
-    display = TftDisplay()
+    display = create_display()
 
     display.start()
     display.showWakeGuide()

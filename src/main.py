@@ -1280,7 +1280,7 @@ def main() -> None:
 
         try:
             # Permanently close camera + buzzer resources.
-            attention_monitor.stop()
+            attention_monitor.close()
 
         except Exception as error:
             print(

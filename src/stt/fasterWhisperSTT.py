@@ -7,7 +7,7 @@ from typing import Optional
 
 import numpy as np
 import pyaudio
-from scipy.signal import resample
+from scipy.signal import resample_poly
 from faster_whisper import WhisperModel, audio
 
 
@@ -19,7 +19,7 @@ class FasterWhisperSTT:
 
     TARGET_RATE = 16000
     CHANNELS = 1
-    CHUNK = 1024
+    CHUNK = 2048
     AUDIO_FORMAT = pyaudio.paInt16
 
     def __init__(
@@ -136,13 +136,31 @@ class FasterWhisperSTT:
             )
 
             #discard initial noisy samples, removes startup glitch when sample rate > 16kHz
-            # self.warmup_seconds = 0.5
-            # warmup_chunks = max(1, int(self.warmup_seconds * self.input_rate / self.CHUNK))
-            # for _ in range(warmup_chunks):
-            #     stream.read(
-            #         self.CHUNK,
-            #         exception_on_overflow=False
-            #     )
+            self.warmup_seconds = 0.5
+            warmup_chunks = max(1, int(self.warmup_seconds * self.input_rate / self.CHUNK))
+            for _ in range(warmup_chunks):
+                stream.read(
+                    self.CHUNK,
+                    exception_on_overflow=False
+                )
+
+            # 1. Collect baseline RMS from first 0.5 seconds of quiet
+            baseline_chunks = int(0.5 * self.input_rate / self.CHUNK)
+            baseline_rms_values = []
+            for _ in range(baseline_chunks):
+                data = stream.read(self.CHUNK, exception_on_overflow=False)
+                rms = self._calculate_rms(data)
+                baseline_rms_values.append(rms)
+            baseline_rms = np.mean(baseline_rms_values)
+            
+            # Avoid division by zero or too-low baseline
+            if baseline_rms < 1.0:
+                baseline_rms = 1.0
+            print(f"[STT] Baseline noise RMS: {baseline_rms:.1f}")
+
+            # Detection thresholds (tune these factors)
+            speech_factor = 4.5      # adjust if too sensitive / not sensitive
+            silence_factor = 2     # RMS must drop below this * baseline to be "silent"
 
             print("[STT] Listening for your question...")
 
@@ -205,12 +223,12 @@ class FasterWhisperSTT:
                 )
 
                 rms = self._calculate_rms(data)
-
+                print(f"RMS: {rms:.1f}")
                 if not speech_started:
                     pre_roll.append(data)
                     waiting_chunk_count += 1
 
-                    if rms >= self.speech_threshold:
+                    if rms >= baseline_rms * speech_factor:
                         speech_started = True
                         frames.extend(pre_roll)
 
@@ -232,7 +250,7 @@ class FasterWhisperSTT:
                 frames.append(data)
                 recorded_chunk_count += 1
 
-                if rms < self.speech_threshold:
+                if rms < baseline_rms * silence_factor:
                     silence_chunk_count += 1
                 else:
                     silence_chunk_count = 0
@@ -256,8 +274,12 @@ class FasterWhisperSTT:
 
             # Resample entire recording to 16 kHz with SciPy
             if self.input_rate != self.TARGET_RATE:
-                target_len = int(len(int16_audio) * self.TARGET_RATE / self.input_rate)
-                int16_audio = resample(int16_audio, target_len).astype(np.int16)
+                # resample_poly with rational conversion
+                int16_audio = resample_poly(
+                    int16_audio.astype(np.float64),
+                    self.TARGET_RATE,
+                    self.input_rate
+                ).astype(np.int16)
             
             # Whisper expects float audio approximately between -1 and 1.
             normalized_audio = (
@@ -294,7 +316,7 @@ class FasterWhisperSTT:
             vad_parameters={
                 "min_silence_duration_ms": 400,
             },
-            condition_on_previous_text=False,
+            condition_on_previous_text=False
         )
 
         # Faster-Whisper returns segments as a generator.

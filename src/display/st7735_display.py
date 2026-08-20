@@ -33,6 +33,10 @@ class ST7735Hardware:
     def __init__(self, dc_pin=24, reset_pin=25, 
                  spi_bus=0, spi_device=0, spi_speed=40000000):
         
+        self._saved_image = None          # copy of the screen
+        self._saved_scroll_mode = None    # 'topics' or 'pages' or None
+        self._saved_scroll_data = {}      # store topics/pages and current indices
+
         # Open GPIO chip (Pi 5 uses gpiochip4)
         self.gpio_chip = lgpio.gpiochip_open(4)
         
@@ -279,11 +283,11 @@ class TftDisplay:
         self.stop_scroll.clear()
         self.stop_page.clear()
     
-    def _start_topic_scroll(self, topics):
+    def _start_topic_scroll(self, topics, start_index=0):
         """Start auto-scrolling through topics"""
         self._stop_threads()
         self.current_topics = list(topics)
-        self.current_topic_index = 0
+        self.current_topic_index = start_index % len(self.current_topics)
         
         def scroll_topics():
             while not self.stop_scroll.is_set():
@@ -295,11 +299,11 @@ class TftDisplay:
         self.scroll_thread = threading.Thread(target=scroll_topics, daemon=True)
         self.scroll_thread.start()
     
-    def _start_page_turn(self, pages):
+    def _start_page_turn(self, pages, start_index=0):
         """Start auto-pagination through pages"""
         self._stop_threads()
         self.current_pages = pages
-        self.current_page_index = 0
+        self.current_page_index = start_index % len(self.current_pages)
         
         def turn_pages():
             while not self.stop_page.is_set():
@@ -710,24 +714,62 @@ class TftDisplay:
             self._update_display()
     
     def showAttentionWarning(self):
-        """Display attention warning"""
+        # 1. Save the current screen
+        self._saved_image = self.image.copy()
+
+        # 2. Remember what auto‑mode was active
+        if self.scroll_thread and self.scroll_thread.is_alive():
+            self._saved_scroll_mode = 'topics'
+            self._saved_scroll_data = {
+                'topics': self.current_topics[:],
+                'index': self.current_topic_index
+            }
+        elif self.page_thread and self.page_thread.is_alive():
+            self._saved_scroll_mode = 'pages'
+            self._saved_scroll_data = {
+                'pages': self.current_pages[:],
+                'index': self.current_page_index
+            }
+        else:
+            self._saved_scroll_mode = None
+
+        # 3. Stop threads
         self._stop_threads()
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
-        
+
+        # 4. Draw the warning (your existing code)
+        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), fill=self.colors['background'])
         self._draw_text("!", TFT_WIDTH//2, 25, self.font_large, 'accent')
         self._draw_text("Please Pay Attention", TFT_WIDTH//2, 55, self.font_small, 'white')
         self._draw_text("Echo is paused", TFT_WIDTH//2, 75, self.font_tiny, 'secondary')
         self._draw_text("Continue when ready", TFT_WIDTH//2, 95, self.font_tiny, 'secondary')
-        
         self._update_display()
-    
+        
     def clearAttentionWarning(self):
-        """Clear attention warning"""
-        pass
-    
+        if self._saved_image is None:
+            return
+
+        # 1. Restore the image
+        self.image = self._saved_image.copy()
+        self._update_display()
+
+        # 2. Resume the previous auto‑mode if it existed
+        if self._saved_scroll_mode == 'topics':
+            data = self._saved_scroll_data
+            self._start_topic_scroll(data['topics'], start_index=data['index'])
+        elif self._saved_scroll_mode == 'pages':
+            data = self._saved_scroll_data
+            self._start_page_turn(data['pages'], start_index=data['index'])
+
+        # 3. Clear saved state
+        self._saved_image = None
+        self._saved_scroll_mode = None
+        self._saved_scroll_data = {}   
     def close(self):
-        """Clean up and close display"""
+        """Clean up and close display, reset to black."""
         self._stop_threads()
         if self.display:
+            # Clear the screen to black
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), fill=(0, 0, 0))
+            self._update_display()
+            # Then clean up hardware
             self.display.cleanup()

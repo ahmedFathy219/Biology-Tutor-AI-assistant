@@ -1,7 +1,6 @@
 # src/wake_word/openwakeword_detector.py
 
 import time
-
 import pyaudio
 import numpy as np
 from scipy.signal import resample

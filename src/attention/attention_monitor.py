@@ -51,7 +51,7 @@ class AttentionMonitor:
         frame_width: int = 640,
         frame_height: int = 480,
     ) -> None:
-
+        self.camera = None
         self.enabled = enabled
         self.camera_index = camera_index
         self.show_window = show_window
@@ -141,6 +141,13 @@ class AttentionMonitor:
             )
             return
 
+                # Try to prevent infinite blocking (if supported)
+        if hasattr(cv2, "CAP_PROP_READ_TIMEOUT_MSEC"):
+            try:
+                camera.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 1000)
+            except Exception:
+                pass
+
         camera.set(
             cv2.CAP_PROP_FRAME_WIDTH,
             self.frame_width,
@@ -171,7 +178,10 @@ class AttentionMonitor:
                 start_time = time.monotonic()
 
                 success, frame = camera.read()
-
+                # If stop was requested while read() was blocking,
+                # break out immediately once we get a frame.
+                if self.stop_event.is_set():
+                    break
                 if not success:
                     print(
                         "[Attention] "
@@ -324,8 +334,14 @@ class AttentionMonitor:
 
             self.buzzer.stop()
 
-            camera.release()
+            try:
+                camera.release()
+            except:
+                pass
 
+            if self.camera is camera:
+                self.camera = None
+            
             pose_estimator.close()
 
             if self.show_window:
@@ -395,7 +411,11 @@ class AttentionMonitor:
         )
 
         self.stop_event.set()
-
+        if self.camera is not None:
+            try:
+                self.camera.release()
+            except Exception as error:
+                print(f"[Attention] Error releasing camera from stop(): {error}")
         if (
             self.thread is not None
             and self.thread.is_alive()

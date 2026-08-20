@@ -1,8 +1,7 @@
 # display_factory.py
 
 import os
-import sys
-
+import platform
 def create_display():
     """
     Create the appropriate display based on platform.
@@ -10,7 +9,9 @@ def create_display():
     """
     
     # Check if running on Raspberry Pi
-    if os.uname().sysname == 'Linux' and os.uname().machine.startswith('arm'):
+    system = platform.system()
+    machine = platform.machine()
+    if system == 'Linux' and machine.startswith('arm'):
         try:
             # Try to use hardware display
             from st7735_display import TftDisplay

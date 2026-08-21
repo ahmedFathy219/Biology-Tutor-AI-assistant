@@ -397,6 +397,7 @@ def quiz_loop(
         # Main quiz loop
         # ====================================================
         while True:
+            display.showThinking()
             question, topic_used, chunk_text = quiz.get_next_question()
 
             print(f"[RAG] Retrieved Chunk:\n{chunk_text}\n")
@@ -453,6 +454,7 @@ def quiz_loop(
 
                 # Try to get a short explanation
                 try:
+                    display.showThinking()
                     explanation = quiz.explain_answer(question, chunk_text)
                     feedback = f"No problem! {explanation}"
                 except Exception as e:
@@ -466,6 +468,7 @@ def quiz_loop(
                 }
             else:
                 try:
+                    display.showThinking()
                     result = quiz.evaluate(question, chunk_text, answer)
                 except Exception as e:
                     print(f"[Evaluation error] {e}")
@@ -725,6 +728,7 @@ def flashcard_loop(
 
         display.showFlashcardMessage(new_message, topic)
         tts.speak(new_message)
+        display.showThinking()
         new_card = flashcards.generate_flashcard(topic)
 
         interrupted = _review_flashcard(

@@ -299,7 +299,7 @@ class TftDisplay:
         
         def scroll_topics():
             while not self.stop_scroll.is_set():
-                time.sleep(self.scroll_rate)
+                self.stop_scroll.wait(self.scroll_rate)
                 if not self.stop_scroll.is_set():
                     self.current_topic_index = (self.current_topic_index + 1) % len(self.current_topics)
                     self._render_topics_page()
@@ -315,7 +315,7 @@ class TftDisplay:
         
         def turn_pages():
             while not self.stop_page.is_set():
-                time.sleep(self.page_rate)
+                self.stop_page.wait(self.page_rate)
                 if not self.stop_page.is_set():
                     self.current_page_index = (self.current_page_index + 1) % len(self.current_pages)
                     self._render_page()
@@ -454,7 +454,7 @@ class TftDisplay:
                                 fill=self.colors['accent'])
             
             self._draw_text("Thinking...", TFT_WIDTH//2, 80, self.font_small, 'white')
-            self._draw_text("Finding the best answer...", TFT_WIDTH//2, 100, self.font_tiny, 'secondary')
+            self._draw_text("Finding the best response...", TFT_WIDTH//2, 100, self.font_tiny, 'secondary')
             
             self._update_display()
         

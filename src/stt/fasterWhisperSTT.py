@@ -22,6 +22,9 @@ class FasterWhisperSTT:
     CHUNK = 2048
     AUDIO_FORMAT = pyaudio.paInt16
 
+    SPEECH_FACTOR = 4.5      # adjust if too sensitive / not sensitive
+    SILENCE_FACTOR = 2     # RMS must drop below (this * baseline) to be "silent"
+
     def __init__(
         self,
         model_size: str = "base.en",
@@ -159,8 +162,7 @@ class FasterWhisperSTT:
             print(f"[STT] Baseline noise RMS: {baseline_rms:.1f}")
 
             # Detection thresholds (tune these factors)
-            speech_factor = 4.5      # adjust if too sensitive / not sensitive
-            silence_factor = 2     # RMS must drop below this * baseline to be "silent"
+
 
             print("[STT] Listening for your question...")
 
@@ -223,12 +225,11 @@ class FasterWhisperSTT:
                 )
 
                 rms = self._calculate_rms(data)
-                print(f"RMS: {rms:.1f}")
                 if not speech_started:
                     pre_roll.append(data)
                     waiting_chunk_count += 1
 
-                    if rms >= baseline_rms * speech_factor:
+                    if rms >= baseline_rms * self.SPEECH_FACTOR:
                         speech_started = True
                         frames.extend(pre_roll)
 
@@ -250,7 +251,7 @@ class FasterWhisperSTT:
                 frames.append(data)
                 recorded_chunk_count += 1
 
-                if rms < baseline_rms * silence_factor:
+                if rms < baseline_rms * self.SILENCE_FACTOR:
                     silence_chunk_count += 1
                 else:
                     silence_chunk_count = 0

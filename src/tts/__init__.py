@@ -1,6 +1,5 @@
 import platform
 from .tts_engine import TTSEngine
-from .local_tts_engine import LocalTTSEngine
 
 def getTTSEngine(pause_event=None, resume_event=None):
     """
@@ -19,6 +18,7 @@ def getTTSEngine(pause_event=None, resume_event=None):
 
     if is_pi5:
         # Optionally pass a custom voice model path if you have one
+        from .local_tts_engine import LocalTTSEngine
         return LocalTTSEngine(pause_event=pause_event, resume_event=resume_event)
     else:
         return TTSEngine(pause_event, resume_event)

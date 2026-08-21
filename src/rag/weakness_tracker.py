@@ -16,7 +16,8 @@ class WeaknessTracker:
         # scores: higher = weaker
         self.temperature = 1.5  # softness of weighting
         self._load_scores()
-        
+        if not self.scores:
+            self.scores = {topic : 0 for topic in ALLOWED_TOPICS}
 
     def _load_scores(self):
         if os.path.exists(WEAKNESS_TRACKER_PATH):
@@ -27,6 +28,9 @@ class WeaknessTracker:
                 self.scores = {}
         else:
             self.scores = {}
+
+        if len(self.scores) < len(ALLOWED_TOPICS):
+            self.scores = {topic: self.scores.get(topic, 0) for topic in ALLOWED_TOPICS} 
     def _save_scores(self):
         os.makedirs(os.path.dirname(WEAKNESS_TRACKER_PATH), exist_ok=True)  
         with open(WEAKNESS_TRACKER_PATH, "w") as f:

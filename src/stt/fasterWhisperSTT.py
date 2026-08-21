@@ -21,10 +21,6 @@ class FasterWhisperSTT:
     CHANNELS = 1
     CHUNK = 2048
     AUDIO_FORMAT = pyaudio.paInt16
-
-    SPEECH_FACTOR = 4.5      # adjust if too sensitive / not sensitive
-    SILENCE_FACTOR = 2     # RMS must drop below (this * baseline) to be "silent"
-
     def __init__(
         self,
         model_size: str = "base.en",
@@ -37,6 +33,8 @@ class FasterWhisperSTT:
         wait_for_speech_seconds: float = 5.0,
         max_recording_seconds: float = 15.0,
         beam_size: int = 3,
+        speech_vad_factor: float = 4.5,          # factor for std in speech detection
+        silence_vad_factor: float = 2.0,          # factor for std in silence detection
     ) -> None:
         self.device_index = device_index
         self.language = language
@@ -45,7 +43,8 @@ class FasterWhisperSTT:
         self.wait_for_speech_seconds = wait_for_speech_seconds
         self.max_recording_seconds = max_recording_seconds
         self.beam_size = beam_size
-
+        self.speech_vad_factor = speech_vad_factor
+        self.silence_vad_factor = silence_vad_factor
         #determine a working input rate
         pa = pyaudio.PyAudio()
         self.input_rate = self._get_supported_rate(pa)
@@ -154,12 +153,19 @@ class FasterWhisperSTT:
                 data = stream.read(self.CHUNK, exception_on_overflow=False)
                 rms = self._calculate_rms(data)
                 baseline_rms_values.append(rms)
-            baseline_rms = np.mean(baseline_rms_values)
-            
+            mean_rms = np.mean(baseline_rms_values)
+            std_rms = max(np.std(baseline_rms_values), 1.0)
+
+            speech_threshold = mean_rms + self.speech_vad_factor * std_rms
+
+            silence_threshold = mean_rms + self.silence_vad_factor * std_rms
+
+            print(f"[STT] Noise: mean={mean_rms:.1f}, std={std_rms:.1f}")
+            print(f"[STT] Speech threshold = {speech_threshold:.1f}, Silence threshold = {silence_threshold:.1f}")
+
             # Avoid division by zero or too-low baseline
             if baseline_rms < 1.0:
                 baseline_rms = 1.0
-            print(f"[STT] Baseline noise RMS: {baseline_rms:.1f}")
 
             # Detection thresholds (tune these factors)
 
@@ -229,7 +235,7 @@ class FasterWhisperSTT:
                     pre_roll.append(data)
                     waiting_chunk_count += 1
 
-                    if rms >= baseline_rms * self.SPEECH_FACTOR:
+                    if rms >= speech_threshold:
                         speech_started = True
                         frames.extend(pre_roll)
 
@@ -251,7 +257,7 @@ class FasterWhisperSTT:
                 frames.append(data)
                 recorded_chunk_count += 1
 
-                if rms < baseline_rms * self.SILENCE_FACTOR:
+                if rms < silence_threshold:
                     silence_chunk_count += 1
                 else:
                     silence_chunk_count = 0

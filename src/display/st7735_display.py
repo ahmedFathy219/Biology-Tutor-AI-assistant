@@ -32,14 +32,16 @@ class ST7735Hardware:
     
     def __init__(self, dc_pin=24, reset_pin=25, 
                  spi_bus=0, spi_device=0, spi_speed=40000000):
-        
-        self._saved_image = None          # copy of the screen
-        self._saved_scroll_mode = None    # 'topics' or 'pages' or None
-        self._saved_scroll_data = {}      # store topics/pages and current indices
 
         # Open GPIO chip (Pi 5 uses gpiochip4)
         self.gpio_chip = lgpio.gpiochip_open(4)
-        
+
+        for pin in [dc_pin, reset_pin]:
+            try:
+                lgpio.gpio_free(self.gpio_chip, pin)
+            except:
+                pass  # ignore errors – the pin might already be free
+                     
         self.dc_pin = dc_pin
         self.reset_pin = reset_pin
         
@@ -156,6 +158,11 @@ class TftDisplay:
     
     def __init__(self, dc_pin=24, reset_pin=25, 
                  scroll_rate=1.0, page_rate=3.0):
+
+        self._saved_image = None          # copy of the screen
+        self._saved_scroll_mode = None    # 'topics' or 'pages' or None
+        self._saved_scroll_data = {}      # store topics/pages and current indices
+        
         self.display = None
         self.dc_pin = dc_pin
         self.reset_pin = reset_pin
@@ -169,6 +176,8 @@ class TftDisplay:
         self.page_thread = None
         self.stop_scroll = threading.Event()
         self.stop_page = threading.Event()
+        self._lock = threading.Lock()
+
         
         # Create image buffer
         self.image = Image.new('RGB', (TFT_WIDTH, TFT_HEIGHT), 'black')
@@ -252,22 +261,21 @@ class TftDisplay:
         """Draw simplified microphone icon"""
         # Scale for landscape mode
         s = scale
-        
-        # Microphone body
+            # Microphone body
         self.draw.rectangle((center_x - 8*s, center_y - 15*s, 
                             center_x + 8*s, center_y + 5*s),
-                           outline=self.colors['accent'], width=2)
+                        outline=self.colors['accent'], width=2)
         
         # Microphone top (arc)
         self.draw.arc((center_x - 8*s, center_y - 20*s, 
-                      center_x + 8*s, center_y - 10*s),
-                      start=0, end=180, fill=self.colors['accent'], width=2)
+                    center_x + 8*s, center_y - 10*s),
+                    start=0, end=180, fill=self.colors['accent'], width=2)
         
         # Stand
         self.draw.line((center_x, center_y + 15*s, center_x, center_y + 22*s),
-                      fill=self.colors['accent'], width=2)
+                    fill=self.colors['accent'], width=2)
         self.draw.line((center_x - 8*s, center_y + 22*s, center_x + 8*s, center_y + 22*s),
-                      fill=self.colors['accent'], width=2)
+                    fill=self.colors['accent'], width=2)
     
     def _stop_threads(self):
         """Stop all background threads"""
@@ -404,366 +412,384 @@ class TftDisplay:
     # Display methods (landscape optimized)
     def showWakeGuide(self):
         """Display wake guide screen"""
-        self._stop_threads()
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
-        
-        self._draw_text("ECHO", TFT_WIDTH//2 - 30, 40, self.font_medium, 'white')
-        self._draw_microphone(TFT_WIDTH//2 - 30, 60, 0.6)
-        self._draw_text('Say "Hey Echo"', TFT_WIDTH//2 + 30, 50, self.font_small, 'white')
-        self._draw_text("Waiting for you...", TFT_WIDTH//2 + 30, 70, self.font_tiny, 'secondary')
-        
-        self._update_display()
+        with self._lock:
+            self._stop_threads()
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
+                            fill=self.colors['background'])
+            
+            self._draw_text("ECHO", TFT_WIDTH//2 - 30, 40, self.font_medium, 'white')
+            self._draw_microphone(TFT_WIDTH//2 - 30, 60, 0.6)
+            self._draw_text('Say "Hey Echo"', TFT_WIDTH//2 + 30, 50, self.font_small, 'white')
+            self._draw_text("Waiting for you...", TFT_WIDTH//2 + 30, 70, self.font_tiny, 'secondary')
+            
+            self._update_display()
     
     def showListening(self):
         """Display listening screen"""
-        self._stop_threads()
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
-        
-        self._draw_text("ECHO", TFT_WIDTH//2 - 30, 40, self.font_medium, 'white')
-        self._draw_microphone(TFT_WIDTH//2 - 30, 60, 0.6)
-        self._draw_text("Listening...", TFT_WIDTH//2 + 30, 50, self.font_small, 'white')
-        self._draw_text("Ask me a question.", TFT_WIDTH//2 + 30, 70, self.font_tiny, 'secondary')
-        
-        self._update_display()
+        with self._lock:
+            self._stop_threads()
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
+                            fill=self.colors['background'])
+            
+            self._draw_text("ECHO", TFT_WIDTH//2 - 30, 40, self.font_medium, 'white')
+            self._draw_microphone(TFT_WIDTH//2 - 30, 60, 0.6)
+            self._draw_text("Listening...", TFT_WIDTH//2 + 30, 50, self.font_small, 'white')
+            self._draw_text("Ask me a question.", TFT_WIDTH//2 + 30, 70, self.font_tiny, 'secondary')
+            
+            self._update_display()
     
     def showThinking(self):
         """Display thinking screen"""
-        self._stop_threads()
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
+        with self._lock:
+            self._stop_threads()
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
+                            fill=self.colors['background'])
+            
+            self._draw_text("ECHO", TFT_WIDTH//2, 30, self.font_medium, 'white')
+            
+            # Thinking dots
+            for i in range(3):
+                x = TFT_WIDTH//2 - 15 + i * 15
+                self.draw.ellipse((x, 55, x + 8, 63), 
+                                fill=self.colors['accent'])
+            
+            self._draw_text("Thinking...", TFT_WIDTH//2, 80, self.font_small, 'white')
+            self._draw_text("Finding the best answer...", TFT_WIDTH//2, 100, self.font_tiny, 'secondary')
+            
+            self._update_display()
         
-        self._draw_text("ECHO", TFT_WIDTH//2, 30, self.font_medium, 'white')
-        
-        # Thinking dots
-        for i in range(3):
-            x = TFT_WIDTH//2 - 15 + i * 15
-            self.draw.ellipse((x, 55, x + 8, 63), 
-                             fill=self.colors['accent'])
-        
-        self._draw_text("Thinking...", TFT_WIDTH//2, 80, self.font_small, 'white')
-        self._draw_text("Finding the best answer...", TFT_WIDTH//2, 100, self.font_tiny, 'secondary')
-        
-        self._update_display()
-    
     def showAnswering(self, answerText="", pageNumber=1, totalPages=1):
         """Display answering screen"""
-        self._stop_threads()
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
+        with self._lock:
+            self._stop_threads()
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
+                            fill=self.colors['background'])
+            
+            self._draw_text("ECHO", TFT_WIDTH//2, 40, self.font_medium, 'white')
+            self._draw_text("Answering...", TFT_WIDTH//2, 75, self.font_small, 'accent')
+            
+            self._update_display()
         
-        self._draw_text("ECHO", TFT_WIDTH//2, 40, self.font_medium, 'white')
-        self._draw_text("Answering...", TFT_WIDTH//2, 75, self.font_small, 'accent')
-        
-        self._update_display()
-    
     def showQuizTime(self, topic=None):
         """Display quiz time screen"""
-        self._stop_threads()
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
+        with self._lock:
+            self._stop_threads()
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
+                            fill=self.colors['background'])
+            
+            self._draw_text("QUIZ TIME", TFT_WIDTH//2, 30, self.font_large, 'accent')
         
-        self._draw_text("QUIZ TIME", TFT_WIDTH//2, 30, self.font_large, 'accent')
-        
-        if topic:
-            self._draw_text(f"Topic: {topic}", TFT_WIDTH//2, 70, self.font_small, 'white')
-        
-        self._draw_text("Let's see what you know!", TFT_WIDTH//2, 100, self.font_tiny, 'secondary')
-        
-        self._update_display()
+            if topic:
+                self._draw_text(f"Topic: {topic}", TFT_WIDTH//2, 70, self.font_small, 'white')
+            
+            self._draw_text("Let's see what you know!", TFT_WIDTH//2, 100, self.font_tiny, 'secondary')
+            
+            self._update_display()
     
     def showQuizTopics(self, topics):
         """Display quiz topics with auto-scroll"""
-        self._stop_threads()
-        self.current_topics = list(topics)
-        self.current_topic_index = 0
-        self._render_topics_page()
-        self._start_topic_scroll(topics)
-    
+        with self._lock:
+            self._stop_threads()
+            self.current_topics = list(topics)
+            self.current_topic_index = 0
+            self._render_topics_page()
+            self._start_topic_scroll(topics)
+        
     def showQuizQuestion(self, questionNumber, topic, question):
         """Display quiz question with pagination if needed"""
-        self._stop_threads()
-        
-        # Header
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
-        
-        self._draw_text("QUIZ TIME", 5, 10, self.font_tiny, 'accent', align='left')
-        self._draw_text(f"Q{questionNumber}", TFT_WIDTH-5, 10, self.font_tiny, 'secondary', align='right')
-        self._draw_text(f"Topic: {topic}", 5, 22, self.font_tiny, 'secondary', align='left')
-        self.draw.line((5, 35, TFT_WIDTH-5, 35), fill=self.colors['secondary'])
-        
-        # Paginate question if needed
-        pages = self._paginate_text(question, chars_per_line=28, lines_per_page=4)
-        
-        if len(pages) > 1:
-            # Show first page and start pagination
-            self.current_pages = pages
-            self.current_page_index = 0
-            self._render_page()
-            self._start_page_turn(pages)
-        else:
-            # Single page - display directly
-            lines = textwrap.wrap(question, width=28)
-            y = 55
-            for line in lines[:4]:
-                self._draw_text(line, TFT_WIDTH//2, y, self.font_small, 'white')
-                y += 18
+        with self._lock:
+            self._stop_threads()
             
-            self._draw_text("Your Answer...", TFT_WIDTH//2, TFT_HEIGHT-15, self.font_small, 'accent')
-            self._update_display()
+            # Header
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
+                            fill=self.colors['background'])
+            
+            self._draw_text("QUIZ TIME", 5, 10, self.font_tiny, 'accent', align='left')
+            self._draw_text(f"Q{questionNumber}", TFT_WIDTH-5, 10, self.font_tiny, 'secondary', align='right')
+            self._draw_text(f"Topic: {topic}", 5, 22, self.font_tiny, 'secondary', align='left')
+            self.draw.line((5, 35, TFT_WIDTH-5, 35), fill=self.colors['secondary'])
+            
+            # Paginate question if needed
+            pages = self._paginate_text(question, chars_per_line=28, lines_per_page=4)
+            
+            if len(pages) > 1:
+                # Show first page and start pagination
+                self.current_pages = pages
+                self.current_page_index = 0
+                self._render_page()
+                self._start_page_turn(pages)
+            else:
+                # Single page - display directly
+                lines = textwrap.wrap(question, width=28)
+                y = 55
+                for line in lines[:4]:
+                    self._draw_text(line, TFT_WIDTH//2, y, self.font_small, 'white')
+                    y += 18
+                
+                self._draw_text("Your Answer...", TFT_WIDTH//2, TFT_HEIGHT-15, self.font_small, 'accent')
+                self._update_display()
     
     def showQuizResult(self, isCorrect, streakValue, message):
         """Display quiz result"""
-        self._stop_threads()
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
-        
-        result_text = "CORRECT!" if isCorrect else "NOT QUITE"
-        result_color = 'green' if isCorrect else 'red'
-        
-        self._draw_text(result_text, TFT_WIDTH//2, 20, self.font_medium, result_color)
-        self._draw_text(f"Streak: {streakValue}", TFT_WIDTH//2, 40, self.font_small, 'accent')
-        
-        # Paginate message
-        pages = self._paginate_text(message, chars_per_line=28, lines_per_page=3)
-        if len(pages) > 1:
-            self.current_pages = pages
-            self.current_page_index = 0
-            self._render_page()
-            self._start_page_turn(pages)
-        else:
-            lines = textwrap.wrap(message, width=28)
-            y = 65
-            for line in lines[:3]:
-                self._draw_text(line, TFT_WIDTH//2, y, self.font_tiny, 'white')
-                y += 15
-            self._update_display()
+        with self._lock:
+            self._stop_threads()
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
+                            fill=self.colors['background'])
+            
+            result_text = "CORRECT!" if isCorrect else "NOT QUITE"
+            result_color = 'green' if isCorrect else 'red'
+            
+            self._draw_text(result_text, TFT_WIDTH//2, 20, self.font_medium, result_color)
+            self._draw_text(f"Streak: {streakValue}", TFT_WIDTH//2, 40, self.font_small, 'accent')
+            
+            # Paginate message
+            pages = self._paginate_text(message, chars_per_line=28, lines_per_page=3)
+            if len(pages) > 1:
+                self.current_pages = pages
+                self.current_page_index = 0
+                self._render_page()
+                self._start_page_turn(pages)
+            else:
+                lines = textwrap.wrap(message, width=28)
+                y = 65
+                for line in lines[:3]:
+                    self._draw_text(line, TFT_WIDTH//2, y, self.font_tiny, 'white')
+                    y += 15
+                self._update_display()
     
     def showQuizMessage(self, message, streakValue=0):
         """Display quiz message with pagination"""
-        self._stop_threads()
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
-        
-        self._draw_text("QUIZ TIME", TFT_WIDTH//2, 15, self.font_small, 'accent')
-        self._draw_text("Echo says:", TFT_WIDTH//2, 30, self.font_tiny, 'secondary')
-        
-        # Paginate message
-        pages = self._paginate_text(message, chars_per_line=28, lines_per_page=4)
-        if len(pages) > 1:
-            self.current_pages = pages
-            self.current_page_index = 0
-            self._render_page()
-            self._start_page_turn(pages)
-        else:
-            lines = textwrap.wrap(message, width=28)
-            y = 50
-            for line in lines[:4]:
-                self._draw_text(line, TFT_WIDTH//2, y, self.font_small, 'white')
-                y += 18
+        with self._lock:
+            self._stop_threads()
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
+                            fill=self.colors['background'])
             
-            if streakValue > 0:
-                self._draw_text(f"Streak: {streakValue}", TFT_WIDTH//2, TFT_HEIGHT-15, 
-                               self.font_tiny, 'accent')
-            self._update_display()
+            self._draw_text("QUIZ TIME", TFT_WIDTH//2, 15, self.font_small, 'accent')
+            self._draw_text("Echo says:", TFT_WIDTH//2, 30, self.font_tiny, 'secondary')
+            
+            # Paginate message
+            pages = self._paginate_text(message, chars_per_line=28, lines_per_page=4)
+            if len(pages) > 1:
+                self.current_pages = pages
+                self.current_page_index = 0
+                self._render_page()
+                self._start_page_turn(pages)
+            else:
+                lines = textwrap.wrap(message, width=28)
+                y = 50
+                for line in lines[:4]:
+                    self._draw_text(line, TFT_WIDTH//2, y, self.font_small, 'white')
+                    y += 18
+                
+                if streakValue > 0:
+                    self._draw_text(f"Streak: {streakValue}", TFT_WIDTH//2, TFT_HEIGHT-15, 
+                                self.font_tiny, 'accent')
+                self._update_display()
     
     def showFlashcardMode(self, topic=None):
         """Display flashcard mode screen"""
-        self._stop_threads()
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
-        
-        self._draw_text("FLASHCARD MODE", TFT_WIDTH//2, 30, self.font_large, 'accent')
-        
-        if topic:
-            self._draw_text(f"Topic: {topic}", TFT_WIDTH//2, 65, self.font_small, 'white')
-        
-        self._draw_text("Study at your own pace", TFT_WIDTH//2, 95, self.font_tiny, 'secondary')
-        
-        self._update_display()
+        with self._lock:
+            self._stop_threads()
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
+                            fill=self.colors['background'])
+            
+            self._draw_text("FLASHCARD MODE", TFT_WIDTH//2, 30, self.font_large, 'accent')
+            
+            if topic:
+                self._draw_text(f"Topic: {topic}", TFT_WIDTH//2, 65, self.font_small, 'white')
+            
+            self._draw_text("Study at your own pace", TFT_WIDTH//2, 95, self.font_tiny, 'secondary')
+            
+            self._update_display()
     
     def showFlashcardTopics(self, topics):
         """Display flashcard topics with auto-scroll"""
-        self._stop_threads()
-        self.current_topics = list(topics)
-        self.current_topic_index = 0
-        
-        # Add "WEAKEST" option at the top
-        self.current_topics.insert(0, "WEAKEST")
-        
-        self._render_topics_page()
-        self._start_topic_scroll(self.current_topics)
+        with self._lock:
+            self._stop_threads()
+            self.current_topics = list(topics)
+            self.current_topic_index = 0
+            
+            # Add "WEAKEST" option at the top
+            self.current_topics.insert(0, "WEAKEST")
+            
+            self._render_topics_page()
+            self._start_topic_scroll(self.current_topics)
     
     def showFlashcardQuestion(self, topic, question):
         """Display flashcard question with pagination"""
-        self._stop_threads()
-        
-        # Header
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
-        
-        self._draw_text("FLASHCARD", 5, 10, self.font_tiny, 'accent', align='left')
-        self._draw_text(str(topic), TFT_WIDTH-5, 10, self.font_tiny, 'secondary', align='right')
-        self.draw.line((5, 22, TFT_WIDTH-5, 22), fill=self.colors['secondary'])
-        self._draw_text("QUESTION", TFT_WIDTH//2, 30, self.font_tiny, 'secondary')
-        
-        # Paginate question
-        pages = self._paginate_text(question, chars_per_line=28, lines_per_page=4)
-        if len(pages) > 1:
-            self.current_pages = pages
-            self.current_page_index = 0
-            self._render_page()
-            self._start_page_turn(pages)
-        else:
-            lines = textwrap.wrap(question, width=28)
-            y = 50
-            for line in lines[:4]:
-                self._draw_text(line, TFT_WIDTH//2, y, self.font_small, 'white')
-                y += 18
+        with self._lock:
+            self._stop_threads()
             
-            self._draw_text("Say 'reveal' for answer", TFT_WIDTH//2, TFT_HEIGHT-15, 
-                           self.font_tiny, 'accent')
-            self._update_display()
-    
+            # Header
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
+                            fill=self.colors['background'])
+            
+            self._draw_text("FLASHCARD", 5, 10, self.font_tiny, 'accent', align='left')
+            self._draw_text(str(topic), TFT_WIDTH-5, 10, self.font_tiny, 'secondary', align='right')
+            self.draw.line((5, 22, TFT_WIDTH-5, 22), fill=self.colors['secondary'])
+            self._draw_text("QUESTION", TFT_WIDTH//2, 30, self.font_tiny, 'secondary')
+            
+            # Paginate question
+            pages = self._paginate_text(question, chars_per_line=28, lines_per_page=4)
+            if len(pages) > 1:
+                self.current_pages = pages
+                self.current_page_index = 0
+                self._render_page()
+                self._start_page_turn(pages)
+            else:
+                lines = textwrap.wrap(question, width=28)
+                y = 50
+                for line in lines[:4]:
+                    self._draw_text(line, TFT_WIDTH//2, y, self.font_small, 'white')
+                    y += 18
+                
+                self._draw_text("Say 'reveal' for answer", TFT_WIDTH//2, TFT_HEIGHT-15, 
+                            self.font_tiny, 'accent')
+                self._update_display()
+        
     def showFlashcardAnswer(self, topic, answer):
         """Display flashcard answer with pagination"""
-        self._stop_threads()
-        
-        # Header
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
-        
-        self._draw_text("FLASHCARD", 5, 10, self.font_tiny, 'accent', align='left')
-        self._draw_text(str(topic), TFT_WIDTH-5, 10, self.font_tiny, 'secondary', align='right')
-        self.draw.line((5, 22, TFT_WIDTH-5, 22), fill=self.colors['secondary'])
-        self._draw_text("ANSWER", TFT_WIDTH//2, 30, self.font_small, 'accent')
-        
-        # Paginate answer
-        pages = self._paginate_text(answer, chars_per_line=28, lines_per_page=4)
-        if len(pages) > 1:
-            self.current_pages = pages
-            self.current_page_index = 0
-            self._render_page()
-            self._start_page_turn(pages)
-        else:
-            lines = textwrap.wrap(answer, width=28)
-            y = 50
-            for line in lines[:4]:
-                self._draw_text(line, TFT_WIDTH//2, y, self.font_small, 'white')
-                y += 18
+        with self._lock:
+            self._stop_threads()
             
-            self._draw_text("Rate the difficulty", TFT_WIDTH//2, TFT_HEIGHT-15, 
-                           self.font_tiny, 'secondary')
-            self._update_display()
+            # Header
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
+                            fill=self.colors['background'])
+            
+            self._draw_text("FLASHCARD", 5, 10, self.font_tiny, 'accent', align='left')
+            self._draw_text(str(topic), TFT_WIDTH-5, 10, self.font_tiny, 'secondary', align='right')
+            self.draw.line((5, 22, TFT_WIDTH-5, 22), fill=self.colors['secondary'])
+            self._draw_text("ANSWER", TFT_WIDTH//2, 30, self.font_small, 'accent')
+            
+            # Paginate answer
+            pages = self._paginate_text(answer, chars_per_line=28, lines_per_page=4)
+            if len(pages) > 1:
+                self.current_pages = pages
+                self.current_page_index = 0
+                self._render_page()
+                self._start_page_turn(pages)
+            else:
+                lines = textwrap.wrap(answer, width=28)
+                y = 50
+                for line in lines[:4]:
+                    self._draw_text(line, TFT_WIDTH//2, y, self.font_small, 'white')
+                    y += 18
+                
+                self._draw_text("Rate the difficulty", TFT_WIDTH//2, TFT_HEIGHT-15, 
+                            self.font_tiny, 'secondary')
+                self._update_display()
     
     def showFlashcardDifficulty(self, topic=None):
         """Display difficulty rating screen"""
-        self._stop_threads()
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
-        
-        self._draw_text("FLASHCARD MODE", TFT_WIDTH//2, 15, self.font_small, 'accent')
-        
-        if topic:
-            self._draw_text(f"Topic: {topic}", TFT_WIDTH//2, 30, self.font_tiny, 'secondary')
-        
-        self._draw_text("How difficult?", TFT_WIDTH//2, 50, self.font_small, 'white')
-        
-        # Horizontal difficulty options (better for landscape)
-        difficulties = [
-            ("EASY", 25, 'green'),
-            ("MEDIUM", 80, 'yellow'),
-            ("HARD", 135, 'red'),
-        ]
-        
-        for label, x, color in difficulties:
-            self.draw.rectangle((x-15, 75, x+15, 100), 
-                               outline=self.colors[color], width=2)
-            self._draw_text(label, x, 87, self.font_tiny, color)
-        
-        self._update_display()
+        with self._lock:
+            self._stop_threads()
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
+                            fill=self.colors['background'])
+            
+            self._draw_text("FLASHCARD MODE", TFT_WIDTH//2, 15, self.font_small, 'accent')
+            
+            if topic:
+                self._draw_text(f"Topic: {topic}", TFT_WIDTH//2, 30, self.font_tiny, 'secondary')
+            
+            self._draw_text("How difficult?", TFT_WIDTH//2, 50, self.font_small, 'white')
+            
+            # Horizontal difficulty options (better for landscape)
+            difficulties = [
+                ("EASY", 25, 'green'),
+                ("MEDIUM", 80, 'yellow'),
+                ("HARD", 135, 'red'),
+            ]
+            
+            for label, x, color in difficulties:
+                self.draw.rectangle((x-15, 75, x+15, 100), 
+                                outline=self.colors[color], width=2)
+                self._draw_text(label, x, 87, self.font_tiny, color)
+            
+            self._update_display()
     
     def showFlashcardMessage(self, message, topic=None):
         """Display flashcard message with pagination"""
-        self._stop_threads()
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
-                           fill=self.colors['background'])
-        
-        self._draw_text("FLASHCARD MODE", TFT_WIDTH//2, 15, self.font_small, 'accent')
-        
-        if topic:
-            self._draw_text(f"Topic: {topic}", TFT_WIDTH//2, 30, self.font_tiny, 'secondary')
-        
-        self._draw_text("Echo says:", TFT_WIDTH//2, 45, self.font_tiny, 'secondary')
-        
-        # Paginate message
-        pages = self._paginate_text(message, chars_per_line=28, lines_per_page=4)
-        if len(pages) > 1:
-            self.current_pages = pages
-            self.current_page_index = 0
-            self._render_page()
-            self._start_page_turn(pages)
-        else:
-            lines = textwrap.wrap(message, width=28)
-            y = 65
-            for line in lines[:4]:
-                self._draw_text(line, TFT_WIDTH//2, y, self.font_small, 'white')
-                y += 18
-            self._update_display()
+        with self._lock:
+            self._stop_threads()
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
+                            fill=self.colors['background'])
+            
+            self._draw_text("FLASHCARD MODE", TFT_WIDTH//2, 15, self.font_small, 'accent')
+            
+            if topic:
+                self._draw_text(f"Topic: {topic}", TFT_WIDTH//2, 30, self.font_tiny, 'secondary')
+            
+            self._draw_text("Echo says:", TFT_WIDTH//2, 45, self.font_tiny, 'secondary')
+            
+            # Paginate message
+            pages = self._paginate_text(message, chars_per_line=28, lines_per_page=4)
+            if len(pages) > 1:
+                self.current_pages = pages
+                self.current_page_index = 0
+                self._render_page()
+                self._start_page_turn(pages)
+            else:
+                lines = textwrap.wrap(message, width=28)
+                y = 65
+                for line in lines[:4]:
+                    self._draw_text(line, TFT_WIDTH//2, y, self.font_small, 'white')
+                    y += 18
+                self._update_display()
     
     def showAttentionWarning(self):
-        # 1. Save the current screen
-        self._saved_image = self.image.copy()
+        with self._lock:
+            # 1. Save the current screen
+            self._saved_image = self.image.copy()
 
-        # 2. Remember what auto‑mode was active
-        if self.scroll_thread and self.scroll_thread.is_alive():
-            self._saved_scroll_mode = 'topics'
-            self._saved_scroll_data = {
-                'topics': self.current_topics[:],
-                'index': self.current_topic_index
-            }
-        elif self.page_thread and self.page_thread.is_alive():
-            self._saved_scroll_mode = 'pages'
-            self._saved_scroll_data = {
-                'pages': self.current_pages[:],
-                'index': self.current_page_index
-            }
-        else:
-            self._saved_scroll_mode = None
+            # 2. Remember what auto‑mode was active
+            if self.scroll_thread and self.scroll_thread.is_alive():
+                self._saved_scroll_mode = 'topics'
+                self._saved_scroll_data = {
+                    'topics': self.current_topics[:],
+                    'index': self.current_topic_index
+                }
+            elif self.page_thread and self.page_thread.is_alive():
+                self._saved_scroll_mode = 'pages'
+                self._saved_scroll_data = {
+                    'pages': self.current_pages[:],
+                    'index': self.current_page_index
+                }
+            else:
+                self._saved_scroll_mode = None
 
-        # 3. Stop threads
-        self._stop_threads()
-
-        # 4. Draw the warning (your existing code)
-        self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), fill=self.colors['background'])
-        self._draw_text("!", TFT_WIDTH//2, 25, self.font_large, 'accent')
-        self._draw_text("Please Pay Attention", TFT_WIDTH//2, 55, self.font_small, 'white')
-        self._draw_text("Echo is paused", TFT_WIDTH//2, 75, self.font_tiny, 'secondary')
-        self._draw_text("Continue when ready", TFT_WIDTH//2, 95, self.font_tiny, 'secondary')
-        self._update_display()
+            # 3. Stop threads
         
+            self._stop_threads()
+
+            # 4. Draw the warning (your existing code)
+            self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), fill=self.colors['background'])
+            self._draw_text("!", TFT_WIDTH//2, 25, self.font_large, 'accent')
+            self._draw_text("Please Pay Attention", TFT_WIDTH//2, 55, self.font_small, 'white')
+            self._draw_text("Echo is paused", TFT_WIDTH//2, 75, self.font_tiny, 'secondary')
+            self._draw_text("Continue when ready", TFT_WIDTH//2, 95, self.font_tiny, 'secondary')
+            self._update_display()
+
     def clearAttentionWarning(self):
-        if self._saved_image is None:
-            return
+        with self._lock:
+            if self._saved_image is None:
+                return
 
-        # 1. Restore the image
-        self.image = self._saved_image.copy()
-        self._update_display()
+            # 1. Restore the image
+            self.image = self._saved_image.copy()
+            self._update_display()
 
-        # 2. Resume the previous auto‑mode if it existed
-        if self._saved_scroll_mode == 'topics':
-            data = self._saved_scroll_data
-            self._start_topic_scroll(data['topics'], start_index=data['index'])
-        elif self._saved_scroll_mode == 'pages':
-            data = self._saved_scroll_data
-            self._start_page_turn(data['pages'], start_index=data['index'])
+            # 2. Resume the previous auto‑mode if it existed
+            if self._saved_scroll_mode == 'topics':
+                data = self._saved_scroll_data
+                self._start_topic_scroll(data['topics'], start_index=data['index'])
+            elif self._saved_scroll_mode == 'pages':
+                data = self._saved_scroll_data
+                self._start_page_turn(data['pages'], start_index=data['index'])
 
-        # 3. Clear saved state
-        self._saved_image = None
-        self._saved_scroll_mode = None
-        self._saved_scroll_data = {}   
+            # 3. Clear saved state
+            self._saved_image = None
+            self._saved_scroll_mode = None
+            self._saved_scroll_data = {}   
     def close(self):
         """Clean up and close display, reset to black."""
         self._stop_threads()

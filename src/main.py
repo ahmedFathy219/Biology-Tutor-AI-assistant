@@ -1290,14 +1290,13 @@ def main() -> None:
         try:
             wake_word_detector.stop()
 
-        except Exception:
-            pass
-
+        except Exception as error:
+            print(f"[WakeWord] Shutdown error: {error}")
         try:
             display.close()
 
-        except Exception:
-            pass
+        except Exception as error:
+            print(f"[Display] Shutdown error: {error}")
 
 
 # ============================================================

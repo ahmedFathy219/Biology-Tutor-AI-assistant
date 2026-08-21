@@ -814,7 +814,6 @@ def _review_flashcard(
     Returns False to continue flashcardloop
     Returns True to Exit flashcard mode
     """
-    global should_stop_application
 
     topic = card.get(
         "topic",
@@ -842,7 +841,7 @@ def _review_flashcard(
 
     while True:
 
-        cmd = speech_to_text.listenAndTranscribe(wait_for_speech_seconds=5.0)
+        cmd = speech_to_text.listenAndTranscribe(wait_for_speech_seconds=8.0)
         cmd = normalizeText(cmd)
 
         if cmd in SHOW_ANSWER_COMMANDS:
@@ -884,7 +883,7 @@ def _review_flashcard(
     display.showFlashcardDifficulty(topic)
     tts.speak(difficulty_prompt)
 
-    rating = speech_to_text.listenAndTranscribe(wait_for_speech_seconds=4.0)
+    rating = speech_to_text.listenAndTranscribe(wait_for_speech_seconds=8.0)
     rating = normalizeText(rating)
 
     if rating not in DIFFICULTY_RATINGS:

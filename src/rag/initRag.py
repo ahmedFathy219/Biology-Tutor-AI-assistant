@@ -31,8 +31,6 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL","nomic-embed-text")
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE","1000"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP","200"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE","200"))          # embed 200 chunks at a time
-TOPIC_LLM_MODEL = "llama3.2:3b" #small model to detect chunk topic from allowed topic list
-TOPIC_BATCH_SIZE = 25 #number of chunks to call LLM on in the same prompt for topic detection
 ALLOWED_TOPICS = load_config()["ALLOWED_TOPICS"]
 OCR_ENABLED = True
 AVAILABLE_TOPICS_PATH = Path(__file__).parent.parent / "utils" / "available_topics.json"
@@ -106,9 +104,6 @@ def process_pdfs():
             image_list = page.get_images(full=True)
             for img_idx, img_info in enumerate(image_list):
                 xref = img_info[0]
-                base_image
-                image_bytes
-
                 try:
                     base_image = doc.extract_image(xref)
                     image_bytes = base_image["image"]

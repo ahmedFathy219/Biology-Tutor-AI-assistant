@@ -477,7 +477,7 @@ class TftDisplay:
             self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
                             fill=self.colors['background'])
             
-            self._draw_text("QUIZ TIME", TFT_WIDTH//2, 30, self.font_large, 'accent')
+            self._draw_text("QUIZ TIME", TFT_WIDTH//2, 30, self.font_medium, 'accent')
         
             if topic:
                 self._draw_text(f"Topic: {topic}", TFT_WIDTH//2, 70, self.font_small, 'white')
@@ -593,7 +593,7 @@ class TftDisplay:
             self.draw.rectangle((0, 0, TFT_WIDTH, TFT_HEIGHT), 
                             fill=self.colors['background'])
             
-            self._draw_text("FLASHCARD MODE", TFT_WIDTH//2, 30, self.font_large, 'accent')
+            self._draw_text("FLASHCARD MODE", TFT_WIDTH//2, 30, self.font_medium, 'accent')
             
             if topic:
                 self._draw_text(f"Topic: {topic}", TFT_WIDTH//2, 65, self.font_small, 'white')

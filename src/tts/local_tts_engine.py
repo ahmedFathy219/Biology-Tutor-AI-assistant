@@ -186,8 +186,8 @@ class LocalTTSEngine:
         if not cleaned:
             return
 
-        # add a filler world because this piper model does not say the first word
-        cleaned = "well, " + cleaned
+        # add a filler word because this piper model sometimes does not say the first word
+        cleaned = " , " + cleaned
         with self._lock:
             if self.stop_pending:
                 self.stop_pending = False

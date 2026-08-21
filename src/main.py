@@ -352,8 +352,7 @@ def quiz_loop(
             normalized_topic = normalizeText(topic_choice)
 
             if normalized_topic in EXIT_APPLICATION_COMMANDS:
-                should_stop_application = True
-                tts.speak("Alright, exiting.")
+                tts.speak("Alright, Back to study mode.")
                 return
 
             if normalized_topic == "weakest":
@@ -373,7 +372,7 @@ def quiz_loop(
                 else:
                     topic = None
                     greeting = (
-                        "I couldn't find that topic. "
+                        "I'm sorry, I couldn't find that topic. "
                         "Let's review one of your weaker topics instead."
                     )
 
@@ -417,17 +416,10 @@ def quiz_loop(
             print("[Quiz] Listening for answer...")
             answer = speech_to_text.listenAndTranscribe()
 
-            if not answer:
-                feedback = "I didn't catch that. Let's move on."
-
-                quiz.record_result(topic_used, False)
-                current_streak = update_streak(False)
-
-                display.showQuizResult(False, current_streak, feedback)
-
+            while not answer:
+                feedback = "I didn't catch that. Can you say that again?"
                 tts.speak(feedback)
-                question_number += 1
-                continue
+                answer = speech_to_text.listenAndTranscribe()
 
             normalized_answer = normalizeText(answer)
 
@@ -562,7 +554,6 @@ def quiz_loop(
                 display.showQuizMessage(end_message, current_streak)
 
                 tts.speak(end_message)
-                should_stop_application = True
                 break
 
             elif resp in YES_RESPONSES:
@@ -627,9 +618,7 @@ def flashcard_loop(
     topic_choice = normalizeText(topic_choice)
 
     if topic_choice in EXIT_APPLICATION_COMMANDS:
-        should_stop_application = True
-
-        exit_message = "Alright, exiting application."
+        exit_message = "Alright, exiting flashcard mode."
         display.showFlashcardMessage(exit_message)
         tts.speak(exit_message)
 
@@ -665,6 +654,7 @@ def flashcard_loop(
         due_cards = flashcards.get_due_cards()
 
         if due_cards:
+            tts.speak("There were some due cards, I will show them now.")
             for card in due_cards:
                 interrupted = _review_flashcard(
                     card,
@@ -718,8 +708,6 @@ def flashcard_loop(
 
                     display.showFlashcardMessage(end_message, topic)
                     tts.speak(end_message)
-
-                    should_stop_application = True
                     return
 
                 next_message = "Alright, next card."
@@ -799,8 +787,6 @@ def flashcard_loop(
 
             display.showFlashcardMessage(end_message, topic)
             tts.speak(end_message)
-
-            should_stop_application = True
             return
 
         next_message = "Alright, next card."
@@ -862,15 +848,8 @@ def _review_flashcard(
         if cmd in SHOW_ANSWER_COMMANDS:
             break
 
-        if not cmd:
-            skip_message = "Okay, moving on."
-
-            display.showFlashcardMessage(skip_message, topic)
-            tts.speak(skip_message)
-            return False
-
         if cmd in EXIT_APPLICATION_COMMANDS:
-            should_stop_application = True
+            tts.speak("Okay, back to study mode.")
             return True
 
         retry_message = (
@@ -945,9 +924,11 @@ def _review_flashcard(
     if weakness_tracker is not None:
 
         if rating == "hard":
+            # becomes marked as weak, will be more likey in the future
             weakness_tracker.update(card["topic"], False)
 
         elif rating == "easy":
+            # becomes marked as strong, will be less likely in the future
             weakness_tracker.update(card["topic"], True)
 
     print(f"[Flashcard] {confirm_msg}")

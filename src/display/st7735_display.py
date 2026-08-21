@@ -776,6 +776,8 @@ class TftDisplay:
 
             # 1. Restore the image
             self.image = self._saved_image.copy()
+            # Re-bind ImageDraw to the restored image
+            self.draw = ImageDraw.Draw(self.image)
             self._update_display()
 
             # 2. Resume the previous auto‑mode if it existed
@@ -799,3 +801,4 @@ class TftDisplay:
             self._update_display()
             # Then clean up hardware
             self.display.cleanup()
+            print("[Display] closed display")

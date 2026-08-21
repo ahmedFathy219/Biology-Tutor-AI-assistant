@@ -164,8 +164,8 @@ class FasterWhisperSTT:
             print(f"[STT] Speech threshold = {speech_threshold:.1f}, Silence threshold = {silence_threshold:.1f}")
 
             # Avoid division by zero or too-low baseline
-            if baseline_rms < 1.0:
-                baseline_rms = 1.0
+            if mean_rms < 1.0:
+                mean_rms = 1.0
 
             # Detection thresholds (tune these factors)
 

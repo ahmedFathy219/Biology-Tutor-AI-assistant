@@ -49,11 +49,12 @@ Command Processing
   ├──────────────┬───────────────┐
   ▼              ▼               ▼
 Study          Quiz          Flashcards
+Mode           Mode             Mode
   │              │               │
   └──────────────┴───────────────┘
                  │
                  ▼
-            RAG + LLM
+              RAG + LLM
                  │
                  ▼
           Generated Response

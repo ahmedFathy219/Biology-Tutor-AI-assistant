@@ -4,7 +4,7 @@
 
 ECHO is an AI-powered voice-driven biology study assistant designed to make studying more interactive, personalized, and engaging.
 
-ECHO combines **voice interaction, Retrieval-Augmented Generation (RAG), AI-powered quizzes, flashcards, weakness tracking, attention monitoring, and Raspberry Pi hardware** into one integrated study companion.
+It combines **voice interaction, Retrieval-Augmented Generation (RAG), AI-powered quizzes, flashcards, weakness tracking, attention monitoring, and Raspberry Pi hardware** into one integrated study companion.
 
 Instead of simply answering questions, ECHO helps students **learn, practice, review, and improve** through natural voice interaction.
 
@@ -18,11 +18,11 @@ Instead of simply answering questions, ECHO helps students **learn, practice, re
 - 🧠 **RAG** — Retrieves relevant course content before generating responses.
 - ❓ **Quiz Mode** — Test your knowledge and receive feedback.
 - 🗂️ **Flashcard Mode** — Review concepts using AI-generated flashcards.
-- 📊 **Weakness Tracking** — Focuses practice on topics where the student performs poorly.
+- 📊 **Weakness Tracking** — Gives more practice to topics where the student struggles.
 - 👀 **Attention Monitoring** — Detects prolonged distraction or absence using computer vision.
 - 🖥️ **TFT Display** — Provides visual feedback throughout the interaction.
 - 🔔 **Attention Alert** — Uses a buzzer to alert the student when prolonged distraction is detected.
-- 🍓 **Raspberry Pi 5** — Fully integrated with physical hardware.
+- 🍓 **Raspberry Pi 5** — Integrated with physical hardware.
 - 💻 **Cross-Platform** — Supports Windows and Raspberry Pi 5.
 
 ---
@@ -65,42 +65,55 @@ Mode           Mode             Mode
           │
           ▼
        Speaker
-🤖 AI & Technologies
-Artificial Intelligence
-Llama 3.2:3b — Local Large Language Model
-Nomic Embed Text — Text embeddings
-ChromaDB — Vector database
-LangChain — RAG and LLM orchestration
-Voice
-Faster-Whisper — Speech-to-Text
-OpenWakeWord — Wake-word detection
-Piper — Local Text-to-Speech on Raspberry Pi
-Pocket-TTS — Text-to-Speech on non-Pi systems
-Computer Vision
-OpenCV
-MediaPipe
+```
+
+---
+
+# 🤖 AI & Technologies
+
+## Artificial Intelligence
+
+- **Llama 3.2:3b** — Local Large Language Model
+- **Nomic Embed Text** — Text embeddings
+- **ChromaDB** — Vector database
+- **LangChain** — RAG and LLM orchestration
+
+## Voice
+
+- **Faster-Whisper** — Speech-to-Text
+- **OpenWakeWord** — Wake-word detection
+- **Piper** — Local Text-to-Speech on Raspberry Pi
+- **Pocket-TTS** — Local Text-to-Speech on Windows/non-Pi systems
+
+## Computer Vision
+
+- **OpenCV**
+- **MediaPipe**
 
 Used for head-pose estimation and attention monitoring.
 
-Hardware
-Raspberry Pi 5
-ST7735 TFT Display
-Camera
-Microphone
-Speaker
-Buzzer
-🎯 ECHO Modes
-📚 Study Mode
+## Hardware
+
+- Raspberry Pi 5
+- ST7735 TFT Display
+- Camera
+- Microphone
+- Speaker
+- Buzzer
+
+---
+
+# 🎯 ECHO Modes
+
+## 📚 Study Mode
 
 Ask ECHO questions about the biology course material using natural voice interaction.
 
 ECHO retrieves relevant information from the biology knowledge base and generates a grounded response using the LLM.
 
-📸 Study Mode
+---
 
-ADD SCREENSHOT HERE
-
-❓ Quiz Mode
+## ❓ Quiz Mode
 
 ECHO generates biology questions based on the selected topic.
 
@@ -108,141 +121,286 @@ After answering, ECHO evaluates the response and provides feedback.
 
 Quiz performance is also used to improve future topic selection.
 
-📸 Quiz Mode
+---
 
-ADD SCREENSHOT HERE
-
-🗂️ Flashcard Mode
+## 🗂️ Flashcard Mode
 
 ECHO generates flashcards to help students review biology concepts.
 
 Students can rate each card as:
 
-Easy
-Medium
-Hard
+- Easy
+- Medium
+- Hard
 
-The system uses the difficulty rating to schedule future reviews.
+The difficulty rating affects when the card will appear again and contributes to topic-level weakness tracking.
 
-📸 Flashcard Mode
+---
 
-ADD SCREENSHOT HERE
-
-📊 Weakness-Based Practice
+## 📊 Weakness-Based Practice
 
 ECHO tracks performance across different biology topics.
 
-Topics where the student performs poorly receive more practice, allowing revision to become more personalized.
+Topics where the student performs poorly are identified as weaker areas and prioritized in later revision.
 
-📸 Weakness Tracking
+---
 
-ADD SCREENSHOT HERE
+# 👀 Attention Monitoring
 
-👀 Attention Monitoring
-
-ECHO uses the camera with MediaPipe and OpenCV to estimate head orientation and monitor prolonged distraction.
+ECHO uses the camera with **MediaPipe and OpenCV** to estimate head orientation and monitor prolonged distraction.
 
 The system identifies three states:
 
-🟢 Focused
-🟠 Distracted
-🔴 No Face
+- 🟢 **Focused**
+- 🟠 **Distracted**
+- 🔴 **No Face**
 
-When prolonged distraction or absence is detected, ECHO provides visual feedback through the TFT display and can activate the buzzer.
+Attention monitoring uses temporal thresholds rather than classifying distraction from a single frame.
 
-📸 Attention Warning
+When prolonged distraction or face absence is detected, ECHO provides visual feedback through the TFT display and activates the buzzer on Raspberry Pi.
 
-ADD SCREENSHOT HERE
+### 📸 Attention Detection
 
-🖥️ TFT Display
+**ADD ATTENTION SCREENSHOT HERE**
+
+---
+
+# 🖥️ TFT Display
 
 The TFT display provides visual feedback throughout the ECHO experience.
 
-The display changes according to the current state of the system.
+It changes according to the current state of the system, including:
 
-🏠 Welcome
+- 🏠 Welcome
+- 🎙️ Listening
+- 🧠 Thinking
+- 💬 Answer
+- ❓ Quiz Question
+- ✅ Quiz Result
+- 🗂️ Flashcard Question
+- 💡 Flashcard Answer
+- 📊 Flashcard Difficulty
+- 👀 Attention Warning
 
-ADD SCREENSHOT HERE
+### 📸 TFT Display States
 
-🎙️ Listening
+**ADD ONE COLLAGE IMAGE HERE**
 
-ADD SCREENSHOT HERE
+> The collage should contain the different TFT states instead of adding a separate screenshot for every state.
 
-🧠 Thinking
+---
 
-ADD SCREENSHOT HERE
+# 🍓 Raspberry Pi 5
 
-💬 Answer
+ECHO is integrated with a **Raspberry Pi 5** to provide a physical study companion.
 
-ADD SCREENSHOT HERE
+### Hardware Components
 
-❓ Quiz Question
+- Raspberry Pi 5
+- Microphone
+- Speaker
+- ST7735 TFT Display
+- Camera
+- Buzzer
 
-ADD SCREENSHOT HERE
+The Raspberry Pi implementation uses a physical SPI TFT display, USB audio devices, a camera, a GPIO-controlled buzzer, and Piper for local Text-to-Speech.
 
-✅ Quiz Result
+### 📸 Complete Hardware Setup
 
-ADD SCREENSHOT HERE
+**ADD HARDWARE PHOTO HERE**
 
-🗂️ Flashcard Question
+---
 
-ADD SCREENSHOT HERE
+# ⚙️ Installation
 
-💡 Flashcard Answer
+## 1. Clone the Repository
 
-ADD SCREENSHOT HERE
-
-📊 Flashcard Difficulty
-
-ADD SCREENSHOT HERE
-
-👀 Attention Warning
-
-ADD SCREENSHOT HERE
-
-🍓 Raspberry Pi 5
-
-ECHO is integrated with a Raspberry Pi 5 to provide a physical study companion.
-
-Hardware Components
-Raspberry Pi 5
-Microphone
-Speaker
-ST7735 TFT Display
-Camera
-Buzzer
-
-The Raspberry Pi version uses hardware-specific implementations for the TFT display, GPIO-controlled buzzer, and local Text-to-Speech.
-
-📸 Complete Hardware Setup
-
-ADD HARDWARE PHOTO HERE
-
-⚙️ Installation
-1. Clone the Repository
+```bash
 git clone https://github.com/ahmedFathy219/Biology-Tutor-AI-assistant.git
 cd Biology-Tutor-AI-assistant
-2. Create a Virtual Environment
-Windows
+```
+
+## 2. Create a Virtual Environment
+
+### Windows
+
+```bash
 python -m venv venv
 venv\Scripts\activate
-Raspberry Pi / Linux
+```
+
+### Raspberry Pi / Linux
+
+```bash
 python3 -m venv venv
 source venv/bin/activate
-3. Install Dependencies
+```
+
+## 3. Install Dependencies
+
+```bash
 pip install -r requirements.txt
-4. Install Ollama Models
+```
+
+## 4. Install Ollama Models
 
 ECHO uses Ollama to run the local AI models.
 
+```bash
 ollama pull llama3.2:3b
 ollama pull nomic-embed-text
+```
 
 Make sure Ollama is running before starting ECHO.
 
-5. Run ECHO
+---
+
+# 🔊 Pocket-TTS Setup
+
+On Windows/non-Raspberry Pi systems, ECHO uses **Pocket-TTS** for local Text-to-Speech.
+
+Before running ECHO, start the required local services in separate terminals.
+
+### Terminal 1 — Pocket-TTS Server
+
+Open a PowerShell terminal and run:
+
+```powershell
+pocket-tts serve --host 127.0.0.1 --port 8000
+```
+
+Keep this terminal running.
+
+### Terminal 2 — Voice File Server
+
+Open a second PowerShell terminal in the project directory and run:
+
+```powershell
+python -m http.server 8001 --bind 127.0.0.1
+```
+
+Keep this terminal running.
+
+### Terminal 3 — Start ECHO
+
+Open a third terminal in the project directory and run:
+
+```powershell
 python src/main.py
-📂 Project Structure
+```
+
+The communication flow is:
+
+```text
+ECHO
+  │
+  ▼
+Pocket-TTS Server
+127.0.0.1:8000
+  │
+  ▼
+Generated Voice
+  │
+  ▼
+Voice File Server
+127.0.0.1:8001
+  │
+  ▼
+ECHO → Speaker
+```
+
+> **Note:** The Pocket-TTS and voice file server terminals must remain open while ECHO is running.
+
+### Raspberry Pi
+
+The Raspberry Pi implementation uses **Piper** for local Text-to-Speech and does not require the Pocket-TTS setup above.
+
+---
+
+# ▶️ Usage
+
+Once ECHO is running, interact with it using your voice.
+
+### 1. Activate ECHO
+
+Say:
+
+```text
+Hey ECHO
+```
+
+ECHO enters the listening state and waits for your request.
+
+### 2. Study
+
+Ask a biology question naturally:
+
+```text
+What is the function of mitochondria?
+```
+
+ECHO retrieves relevant biology content and provides an AI-generated explanation through the speaker and display.
+
+### 3. Quiz
+
+Say:
+
+```text
+Start a quiz
+```
+
+Choose or provide a biology topic and answer the generated question verbally.
+
+ECHO evaluates the answer, provides feedback, and updates your performance.
+
+### 4. Flashcards
+
+Say:
+
+```text
+Start flashcards
+```
+
+ECHO presents a question for active recall.
+
+After attempting the question, request the answer and rate the card:
+
+```text
+Easy
+Medium
+Hard
+```
+
+The rating affects when the card will appear again.
+
+### 5. Follow-Up Questions
+
+ECHO supports follow-up questions without requiring the wake word again.
+
+For example:
+
+```text
+Hey ECHO
+What is DNA?
+
+What about RNA?
+```
+
+### 6. Interrupting ECHO
+
+If ECHO is speaking, saying:
+
+```text
+Hey ECHO
+```
+
+can interrupt the current response and return the system to the listening state.
+
+---
+
+# 📂 Project Structure
+
+```text
 Biology-Tutor-AI-assistant/
 │
 ├── data/
@@ -269,77 +427,61 @@ Biology-Tutor-AI-assistant/
 │
 ├── requirements.txt
 └── README.md
-🔄 System Overview
+```
 
-ECHO brings together several technologies into one integrated learning experience:
+---
 
-Voice Input → Speech Recognition → AI Processing → Learning Mode → Voice & Visual Feedback
+# 📸 ECHO in Action
 
-The system can operate in:
+## 🎙️ Voice Interaction
 
-📚 Study Mode
-❓ Quiz Mode
-🗂️ Flashcard Mode
+**ADD ONE SCREENSHOT HERE**
 
-while attention monitoring operates alongside the main interaction.
+## 📚 Learning with ECHO
 
-📸 ECHO in Action
-🎙️ Voice Interaction
+**ADD ONE SCREENSHOT HERE**
 
-ADD SCREENSHOT HERE
+## 🍓 Complete ECHO Setup
 
-📚 Studying with ECHO
+**ADD HARDWARE PHOTO HERE**
 
-ADD SCREENSHOT HERE
+---
 
-❓ Taking a Quiz
+# 🚀 Future Improvements
 
-ADD SCREENSHOT HERE
+The future development of ECHO focuses on improving personalization, interaction, and accessibility:
 
-🗂️ Reviewing Flashcards
+- 📄 **User-Uploaded Documents** — Allow students to upload their own study materials and use them as additional sources for the RAG knowledge base.
+- 👁️ **Gaze-Based Attention Monitoring** — Extend attention detection beyond head pose by incorporating gaze information with adjustable alert thresholds.
+- 🎙️ **Improved Interruption Handling** — Further improve the ability to interrupt and resume ECHO's speech naturally during interactions.
+- 🖥️ **Full Graphical User Interface** — Develop a complete GUI to provide a richer visual interface for interacting with ECHO and viewing learning progress.
+- 🔔 **Windows Audio Alert** — Add an optional Windows audio alert that matches the physical buzzer behavior available on the Raspberry Pi.
 
-ADD SCREENSHOT HERE
+---
 
-👀 Attention Detection
+# 🛠️ Project Stack
 
-ADD SCREENSHOT HERE
+**Python • Llama 3.2 • RAG • ChromaDB • Nomic Embeddings • LangChain • Faster-Whisper • OpenWakeWord • Pocket-TTS • Piper • MediaPipe • OpenCV • Raspberry Pi 5**
 
-🍓 Complete ECHO Setup
+---
 
-ADD HARDWARE PHOTO HERE
+# 📬 Contact
 
-🚀 Future Improvements
-🌍 Support for additional subjects
-🧠 More advanced personalized learning
-📈 Detailed learning analytics
-🎤 Improved speech recognition in noisy environments
-⚡ Reduced response latency
-👤 Multiple student profiles
-📱 Companion mobile application
-🔊 Additional TTS voices
-🔄 Improved spaced-repetition algorithms
-👥 Project
-ECHO — AI-Powered Voice-Driven Biology Study Assistant
-
-Built using:
-
-Python • Llama 3.2 • RAG • ChromaDB • Faster-Whisper • OpenWakeWord • MediaPipe • OpenCV • Raspberry Pi 5
-
-📬 Contact
-
-GitHub:
+**GitHub:**  
 https://github.com/ahmedFathy219/Biology-Tutor-AI-assistant
 
-Email:
-ADD YOUR EMAIL HERE
+**Email:**  
+mohamedkh8806@gmail.com
 
-LinkedIn:
-ADD YOUR LINKEDIN HERE
+**LinkedIn:**  
+www.linkedin.com/in/mohamed-khaled-142872345</sub>
 
-⭐ ECHO
+---
 
-Learn. Practice. Improve.
+# ⭐ ECHO
 
-ECHO brings together AI, voice interaction, adaptive learning, computer vision, and embedded hardware to create an interactive biology study companion.
+> **Learn. Practice. Improve.**
 
-Instead of functioning only as a question-answering chatbot, ECHO is designed as a complete study assistant that can explain concepts, test knowledge, identify weaker topics, support revision, monitor attention, and provide visual and physical feedback during study sessions.
+ECHO brings together **AI, voice interaction, adaptive learning, computer vision, and embedded hardware** to create an interactive biology study companion.
+
+Instead of functioning only as a question-answering chatbot, ECHO is designed as a complete study assistant that can **explain concepts, test knowledge, identify weaker topics, support revision, monitor attention, and provide visual and physical feedback** during study sessions.

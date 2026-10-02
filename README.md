@@ -472,9 +472,12 @@ https://github.com/ahmedFathy219/Biology-Tutor-AI-assistant
 
 **Email:**  
 mohamedkh8806@gmail.com
+yaragehad06@gmail.com
 
 **LinkedIn:**  
 www.linkedin.com/in/mohamed-khaled-142872345</sub>
+www.linkedin.com/in/yara-gehad-b50a8740b
+
 
 ---
 

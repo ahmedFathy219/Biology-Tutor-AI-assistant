@@ -32,7 +32,7 @@ CHUNK_SIZE = int(os.getenv("CHUNK_SIZE","1000"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP","200"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE","200"))          # embed 200 chunks at a time
 ALLOWED_TOPICS = load_config()["ALLOWED_TOPICS"]
-OCR_ENABLED = True
+OCR_ENABLED = False
 AVAILABLE_TOPICS_PATH = Path(__file__).parent.parent / "utils" / "available_topics.json"
 AVAILABLE_TOPICS_PATH = str(AVAILABLE_TOPICS_PATH)
 

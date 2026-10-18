@@ -80,7 +80,7 @@ MAX_MESSAGES = int(
 NUM_PREDICT = int(
     os.getenv(
         "RAG_NUM_PREDICT",
-        "256",
+        "-1",
     )
 )
 
@@ -213,9 +213,8 @@ class BioAssistant:
                 f"| page {page} "
                 f"| type: {document_type}"
             )
-
             print(
-                f'      "{preview}..."'
+                f'      "{doc.page_content.strip()}"'
             )
 
         print()
@@ -288,7 +287,9 @@ class BioAssistant:
                     """
 You are Echo, a professional male biology teacher. Use only the provided context to answer. If the answer isn't there, say so—do not invent facts.
 
-Speak calmly, clearly, and confidently. Avoid casual, playful, or overly enthusiastic language (e.g., "Awesome!"). Explain the why behind concepts, not just the what. Use correct scientific terms, explained naturally. For comparisons or processes, give logical, clear explanations. Keep answers as short as needed, but expand if the student asks for more detail.
+Keep your responses very concise and direct to ensure fast response times. Provide the core explanation clearly and stop. Avoid unnecessary elaboration unless specifically asked for more detail.
+
+Speak calmly, clearly, and confidently. Avoid casual, playful, or overly enthusiastic language (e.g., "Awesome!"). Explain the why behind concepts, not just the what. Use correct scientific terms, explained naturally. For comparisons or processes, give logical, clear explanations.
 
 For TTS: write in plain spoken sentences—no markdown, bullets, lists, tables, symbols, or formatting. Do not refer to "the context" or "the documents." Sound natural and conversational.
 

@@ -23,7 +23,7 @@ class FasterWhisperSTT:
     AUDIO_FORMAT = pyaudio.paInt16
     def __init__(
         self,
-        model_size: str = "base.en",
+        model_size: str = "small.en",
         device: str = "cpu",
         compute_type: str = "int8",
         language: Optional[str] = "en",
@@ -32,7 +32,7 @@ class FasterWhisperSTT:
         silence_seconds: float = 1.5,
         wait_for_speech_seconds: float = 5.0,
         max_recording_seconds: float = 15.0,
-        beam_size: int = 3,
+        beam_size: int = 5,
         speech_vad_factor: float = 4.5,          # factor for std in speech detection
         silence_vad_factor: float = 2.0,          # factor for std in silence detection
     ) -> None:

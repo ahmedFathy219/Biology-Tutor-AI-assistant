@@ -4,6 +4,7 @@ import os
 from typing import Optional
 
 from .fasterWhisperSTT import FasterWhisperSTT
+from .terminalSTT import TerminalSTT
 
 
 def _get_optional_integer(variable_name: str) -> Optional[int]:
@@ -17,8 +18,12 @@ def _get_optional_integer(variable_name: str) -> Optional[int]:
         raise ValueError(f"{variable_name} must be an integer.") from error
 
 
-def getSpeechToText() -> FasterWhisperSTT:
-    """Create and return a FasterWhisperSTT instance configured from environment."""
+def getSpeechToText() -> FasterWhisperSTT | TerminalSTT:
+    """Create and return a transcription instance configured from environment."""
+    if os.environ.get("INPUT_METHOD") == "TEXT":
+        print("[STT] Text input mode enabled.")
+        return TerminalSTT()
+
     return FasterWhisperSTT(
         model_size=os.environ.get("STT_MODEL", "base.en"),
         device=os.environ.get("STT_DEVICE", "cpu"),

@@ -66,7 +66,7 @@ K = int(
 TEMP = float(
     os.getenv(
         "RAG_TEMP",
-        "0.6",
+        "0.0",
     )
 )
 
@@ -259,8 +259,10 @@ class BioAssistant:
         # ----------------------------------------------------
 
         self.retriever = vectorstore.as_retriever(
+            search_type="similarity_score_threshold",
             search_kwargs={
                 "k": K,
+                "score_threshold": 0.5
             }
         )
 
@@ -285,13 +287,15 @@ class BioAssistant:
                 (
                     "system",
                     """
-You are Echo, a professional male biology teacher. Use only the provided context to answer. If the answer isn't there, say so—do not invent facts.
+You are Echo, a professional male biology teacher. 
 
-Keep your responses very concise and direct to ensure fast response times. Provide the core explanation clearly and stop. Avoid unnecessary elaboration unless specifically asked for more detail.
+CRITICAL RULE: You must answer the user's question USING ONLY the retrieved biology context below. 
+If the context does not contain the exact information needed to answer the question, you must respond exactly with: "I don't have enough information in my current materials to answer that." 
+Do NOT rely on your pre-trained knowledge. Do NOT invent, assume, or extrapolate facts.
 
-Speak calmly, clearly, and confidently. Avoid casual, playful, or overly enthusiastic language (e.g., "Awesome!"). Explain the why behind concepts, not just the what. Use correct scientific terms, explained naturally. For comparisons or processes, give logical, clear explanations.
+Keep your responses very concise and direct. Explain the why behind concepts using correct scientific terms from the text. 
 
-For TTS: write in plain spoken sentences—no markdown, bullets, lists, tables, symbols, or formatting. Do not refer to "the context" or "the documents." Sound natural and conversational.
+For TTS: write in plain spoken sentences—no markdown, bullets, lists, tables, symbols, or formatting. 
 
 Retrieved biology context:
 
@@ -355,12 +359,15 @@ Retrieved biology context:
         question: str,
         session_id: str = "bio_study",
     ) -> str:
-
         if not question:
-
             return (
                 "I did not hear your question."
             )
+
+        # Early check: Query retriever to see if any relevant docs exist
+        docs = self.retriever.invoke(question)
+        if not docs:
+            return "I don't have enough information in my current materials to answer that."
 
         response = self.chain.invoke(
             {
@@ -372,5 +379,4 @@ Retrieved biology context:
                 }
             },
         )
-
         return response
